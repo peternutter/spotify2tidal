@@ -5,7 +5,7 @@ Sync your Spotify library to Tidal — playlists, favorites, albums, and artists
 This project combines and improves upon two open-source scripts:
 
 - [spotify2tidal](https://github.com/taschenb/spotify2tidal) by taschenb
-- [spotify_to_tidal](https://github.com/spotify-to-tidal/spotify_to_tidal)
+- [spotify_to_tidal](https://github.com/spotify2tidal/spotify_to_tidal)
 
 ## Features
 
