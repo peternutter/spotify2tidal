@@ -35,3 +35,9 @@ sync:
 # Uncomment to exclude specific playlists from sync
 # excluded_playlists:
 #   - spotify:playlist:37i9dQZF1DX0XUsuxWHRQd  # RapCaviar
+
+library:
+  # Directory to save library exports after each sync (default: ./library)
+  # Contains CSV files with your Spotify library and not-found items
+  export_dir: ./library
+

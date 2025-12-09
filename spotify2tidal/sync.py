@@ -14,6 +14,7 @@ from tqdm import tqdm
 from tqdm.asyncio import tqdm as atqdm
 
 from .cache import MatchCache
+from .library import LibraryExporter
 
 logger = logging.getLogger(__name__)
 
@@ -330,12 +331,14 @@ class SyncEngine:
         tidal: tidalapi.Session,
         max_concurrent: int = 10,
         rate_limit: float = 10,
+        library_dir: str = "./library",
     ):
         self.spotify = spotify
         self.tidal = tidal
         self.cache = MatchCache()
         self.rate_limiter = RateLimiter(max_concurrent, rate_limit)
         self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
+        self.library = LibraryExporter(library_dir)
 
     async def sync_playlist(
         self, spotify_playlist_id: str, tidal_playlist_id: Optional[str] = None
@@ -372,9 +375,13 @@ class SyncEngine:
                 existing_tracks = tidal_playlist.tracks()
                 existing_tidal_ids = {t.id for t in existing_tracks}
 
+            # Save all tracks to library export
+            self.library.add_tracks(spotify_tracks)
+
             # Search for tracks on Tidal
             tidal_track_ids = []
             not_found = []
+            not_found_tracks = []
 
             tasks = [self.searcher.search_track(t) for t in spotify_tracks]
             results = await atqdm.gather(*tasks, desc="Searching Tidal for tracks")
@@ -386,6 +393,11 @@ class SyncEngine:
                     not_found.append(
                         f"{spotify_track['artists'][0]['name']} - {spotify_track['name']}"
                     )
+                    not_found_tracks.append(spotify_track)
+
+            # Record not-found tracks for export
+            for track in not_found_tracks:
+                self.library.add_not_found_track(track)
 
             # Add only new tracks
             new_ids = [tid for tid in tidal_track_ids if tid not in existing_tidal_ids]
@@ -444,13 +456,22 @@ class SyncEngine:
             tasks = [self.searcher.search_track(t) for t in spotify_tracks]
             results = await atqdm.gather(*tasks, desc="Searching Tidal for favorites")
 
+            # Save all tracks to library export
+            self.library.add_tracks(spotify_tracks)
+
             # Build list of tracks to add (filter out already existing and not found)
             tracks_to_add = []
+            not_found_list = []
             for spotify_track, tidal_id in zip(spotify_tracks, results):
                 if tidal_id and tidal_id not in existing_ids:
                     tracks_to_add.append(tidal_id)
                 elif not tidal_id:
                     not_found += 1
+                    not_found_list.append(spotify_track)
+
+            # Record not-found tracks for export
+            for track in not_found_list:
+                self.library.add_not_found_track(track)
 
             # Add tracks with progress bar
             for tidal_id in tqdm(tracks_to_add, desc="Adding to Tidal favorites"):
@@ -484,6 +505,9 @@ class SyncEngine:
             # Reverse to add oldest first (so they end up at bottom in Tidal)
             spotify_albums = list(reversed(spotify_albums))
 
+            # Save all albums to library export
+            self.library.add_albums(spotify_albums)
+
             added = 0
             not_found = 0
 
@@ -497,6 +521,7 @@ class SyncEngine:
                         logger.warning(f"Failed to add album: {e}")
                 else:
                     not_found += 1
+                    self.library.add_not_found_album(album)
                     logger.warning(
                         f"Album not found: {album['album']['artists'][0]['name']} - {album['album']['name']}"
                     )
@@ -522,6 +547,9 @@ class SyncEngine:
             # Reverse to add oldest first (so they end up at bottom in Tidal)
             spotify_artists = list(reversed(spotify_artists))
 
+            # Save all artists to library export
+            self.library.add_artists(spotify_artists)
+
             added = 0
             not_found = 0
 
@@ -535,6 +563,7 @@ class SyncEngine:
                         logger.warning(f"Failed to add artist: {e}")
                 else:
                     not_found += 1
+                    self.library.add_not_found_artist(artist)
                     logger.warning(f"Artist not found: {artist['name']}")
 
             return added, not_found
@@ -624,3 +653,23 @@ class SyncEngine:
                 return playlist
 
         return self.tidal.user.create_playlist(name, "")
+
+    def export_library(self) -> dict:
+        """
+        Export collected library data to CSV files.
+        
+        Returns dict with paths to created files and statistics.
+        """
+        stats = self.library.get_stats()
+        logger.info(f"Library stats: {stats}")
+        
+        if any(stats.values()):
+            exported = self.library.export_all()
+            logger.info(f"Exported library data to: {self.library.export_dir}")
+            for name, path in exported.items():
+                logger.info(f"  - {name}: {path}")
+            return {"files": exported, "stats": stats}
+        else:
+            logger.info("No library data to export")
+            return {"files": {}, "stats": stats}
+

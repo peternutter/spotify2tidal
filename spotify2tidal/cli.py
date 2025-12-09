@@ -105,11 +105,13 @@ Examples:
 
     # Create sync engine
     sync_config = config.get("sync", {})
+    library_config = config.get("library", {})
     engine = SyncEngine(
         spotify,
         tidal,
         max_concurrent=sync_config.get("max_concurrent", 10),
         rate_limit=sync_config.get("rate_limit", 10),
+        library_dir=library_config.get("export_dir", "./library"),
     )
 
     # Determine what to sync
@@ -170,6 +172,15 @@ Examples:
                 total_added = sum(d.get("added", 0) for d in data.values())
                 total_nf = sum(d.get("not_found", 0) for d in data.values())
                 print(f"{category}: {total_added} added, {total_nf} not found")
+
+        # Auto-export library data
+        if results:
+            print("\nExporting library data...")
+            export_result = engine.export_library()
+            if export_result["files"]:
+                print(f"Library exported to: {engine.library.export_dir}")
+                for name, path in export_result["files"].items():
+                    print(f"  - {name}: {path}")
 
     except KeyboardInterrupt:
         print("\nSync cancelled")
