@@ -607,16 +607,21 @@ class SyncEngine:
         """Get all saved/liked tracks from Spotify."""
         tracks = []
         results = self.spotify.current_user_saved_tracks()
+        page = 1
 
         while True:
             for item in results["items"]:
                 if item["track"]:
                     tracks.append(item["track"])
 
+            print(f"\rFetching saved tracks from Spotify: {len(tracks)} tracks...", end="", flush=True)
+            
             if not results["next"]:
                 break
             results = self.spotify.next(results)
+            page += 1
 
+        print()  # New line after progress
         return tracks
 
     async def _get_spotify_saved_albums(self) -> List[dict]:
@@ -626,10 +631,13 @@ class SyncEngine:
 
         while True:
             albums.extend(results["items"])
+            print(f"\rFetching saved albums from Spotify: {len(albums)} albums...", end="", flush=True)
+            
             if not results["next"]:
                 break
             results = self.spotify.next(results)
 
+        print()  # New line after progress
         return albums
 
     async def _get_spotify_followed_artists(self) -> List[dict]:
@@ -639,10 +647,13 @@ class SyncEngine:
 
         while True:
             artists.extend(results["items"])
+            print(f"\rFetching followed artists from Spotify: {len(artists)} artists...", end="", flush=True)
+            
             if not results["next"]:
                 break
             results = self.spotify.next(results)["artists"]
 
+        print()  # New line after progress
         return artists
 
     async def _get_or_create_tidal_playlist(self, name: str) -> tidalapi.Playlist:
