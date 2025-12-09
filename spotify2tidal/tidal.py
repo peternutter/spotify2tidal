@@ -1,5 +1,6 @@
 import logging
-import requests
+from pathlib import Path
+
 import tidalapi
 
 
@@ -9,22 +10,26 @@ class Tidal:
     Add new artists/albums/tracks/albums by searching for them with
     save_artist(), save_album(), and save_track().
 
+    Authentication is done via OAuth. On first run, a browser will open
+    to complete authentication. The session is then saved to a file for
+    future use.
+
     Parameters
     ----------
-    username: str
-        Tidal username
-    password: str
-        Tidal password
+    session_file: str or Path, optional
+        Path to store the OAuth session file. Defaults to 'tidal_session.json'
     """
-    def __init__(self, username, password):
-        self.tidal_session = self._connect(username, password)
+
+    def __init__(self, session_file=None):
+        self.session_file = (
+            Path(session_file) if session_file else Path.home() / ".tidal_session.json"
+        )
+        self.tidal_session = self._connect()
 
     @property
     def own_playlists(self):
         """All playlists of the current user."""
-        return self.tidal_session.get_user_playlists(
-            self.tidal_session.user.id
-        )
+        return self.tidal_session.get_user_playlists(self.tidal_session.user.id)
 
     def add_track_to_playlist(self, playlist_id, name, artist):
         """Search tidal for a track and add it to a playlist.
@@ -41,20 +46,9 @@ class Tidal:
         track_id = self._search_track(name, artist)
 
         if track_id:
-            tidal_add_track_url = (
-                "https://listen.tidal.com/v1/playlists/"
-                + str(playlist_id)
-                + "/items"
-            )
-            r = requests.post(
-                tidal_add_track_url,
-                headers={
-                    "x-tidal-sessionid": self.tidal_session.session_id,
-                    "if-none-match": "*",
-                },
-                data={"trackIds": track_id, "toIndex": 1},
-            )
-            r.raise_for_status()
+            # Get playlist object and add track using tidalapi
+            playlist = self.tidal_session.playlist(playlist_id)
+            playlist.add([track_id])
             logging.getLogger(__name__).info("Added: %s - %s", artist, name)
 
         else:
@@ -110,9 +104,7 @@ class Tidal:
             self.tidal_session.user.favorites.add_artist(artist)
             logging.getLogger(__name__).warning("Added artist: %s", name)
         else:
-            logging.getLogger(__name__).warning(
-                "Could not find artist: %s", name
-            )
+            logging.getLogger(__name__).warning("Could not find artist: %s", name)
 
     def save_track(self, name, artist_name):
         """Find a track and save it to your favorites.
@@ -149,38 +141,42 @@ class Tidal:
         if delete_existing is True:
             self.delete_existing_playlist(playlist_name)
 
-        tidal_create_playlist_url = (
-            "https://listen.tidal.com/v1/users/"
-            + str(self.tidal_session.user.id)
-            + "/playlists"
-        )
+        # Use tidalapi to create playlist
+        playlist = self.tidal_session.user.create_playlist(playlist_name, "")
 
-        r = requests.post(
-            tidal_create_playlist_url,
-            data={"title": playlist_name, "description": ""},
-            headers={"x-tidal-sessionid": self.tidal_session.session_id},
-        )
-        r.raise_for_status()
+        logging.getLogger(__name__).debug("Created playlist: %s", playlist_name)
 
-        logging.getLogger(__name__).debug(
-            "Created playlist: %s", playlist_name
-        )
+        return playlist.id
 
-        return r.json()["uuid"]
+    def _connect(self):
+        """Connect to tidal using OAuth and return a session object.
 
-    def _connect(self, username, password):
-        """Connect to tidal and return a session object.
-
-        Parameters
-        ----------
-        username: str
-            Tidal username
-        password: str
-            Tidal password
+        If a session file exists, it will try to load from it.
+        Otherwise, it will initiate OAuth login flow.
         """
         tidal_session = tidalapi.Session()
-        tidal_session.login(username, password)
-        return tidal_session
+
+        # Try to load existing session
+        if self.session_file.exists():
+            try:
+                tidal_session.load_session_from_file(self.session_file)
+                if tidal_session.check_login():
+                    logging.getLogger(__name__).info("Loaded existing Tidal session")
+                    return tidal_session
+            except Exception as e:
+                logging.getLogger(__name__).warning(f"Could not load session: {e}")
+
+        # Start OAuth login
+        logging.getLogger(__name__).info("Starting Tidal OAuth login...")
+        tidal_session.login_oauth_simple()
+
+        if tidal_session.check_login():
+            # Save session for future use
+            tidal_session.save_session_to_file(self.session_file)
+            logging.getLogger(__name__).info("Tidal login successful, session saved")
+            return tidal_session
+        else:
+            raise ValueError("Could not connect to Tidal")
 
     def _delete_playlist(self, playlist_id):
         """Delete a playlist.
@@ -190,13 +186,8 @@ class Tidal:
         playlist_id: str
             Playlist ID to delete
         """
-        playlist_url = "https://listen.tidal.com/v1/playlists/" + playlist_id
-
-        r = requests.delete(
-            playlist_url,
-            headers={"x-tidal-sessionid": self.tidal_session.session_id},
-        )
-        r.raise_for_status()
+        playlist = self.tidal_session.playlist(playlist_id)
+        playlist.delete()
 
     def _search_track(self, name, artist):
         """Search tidal and return the track ID.
@@ -208,10 +199,18 @@ class Tidal:
         artist: str
             Artist of the track
         """
-        tracks = self.tidal_session.search(field="track", value=name).tracks
+        search_query = f"{name} {artist}"
+        results = self.tidal_session.search(
+            search_query, models=[tidalapi.media.Track], limit=20
+        )
+        tracks = (
+            results.get("tracks", [])
+            if isinstance(results, dict)
+            else getattr(results, "tracks", [])
+        )
 
         for t in tracks:
-            if t.artist.name.lower() == artist.lower():
+            if t.artist and t.artist.name.lower() == artist.lower():
                 return t.id
 
     def _search_album(self, name, artist):
@@ -224,10 +223,18 @@ class Tidal:
         artist: str
             Artist of the album
         """
-        albums = self.tidal_session.search(field="album", value=name).albums
+        search_query = f"{name} {artist}"
+        results = self.tidal_session.search(
+            search_query, models=[tidalapi.album.Album], limit=20
+        )
+        albums = (
+            results.get("albums", [])
+            if isinstance(results, dict)
+            else getattr(results, "albums", [])
+        )
 
         for a in albums:
-            if a.artist.name.lower() == artist.lower():
+            if a.artist and a.artist.name.lower() == artist.lower():
                 return a.id
 
     def _search_artist(self, name):
@@ -238,7 +245,14 @@ class Tidal:
         name: str
             Name of the artist
         """
-        artists = self.tidal_session.search(field="artist", value=name).artists
+        results = self.tidal_session.search(
+            name, models=[tidalapi.artist.Artist], limit=20
+        )
+        artists = (
+            results.get("artists", [])
+            if isinstance(results, dict)
+            else getattr(results, "artists", [])
+        )
 
         for a in artists:
             if a.name.lower() == name.lower():

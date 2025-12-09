@@ -1,0 +1,37 @@
+# spotify2tidal configuration
+# Copy this file to config.yml and fill in your details
+
+spotify:
+  # Get these from https://developer.spotify.com/dashboard
+  client_id: your_client_id_here
+  client_secret: your_client_secret_here
+  
+  # Your Spotify username (optional but recommended)
+  username: your_spotify_username
+  
+  # OAuth redirect URI - must match what's in your Spotify app settings
+  redirect_uri: http://127.0.0.1:8888/callback
+  
+  # Set to false if running on a headless server
+  open_browser: true
+
+tidal:
+  # Path to store Tidal OAuth session (optional)
+  # Default: ~/.tidal_session.json
+  # session_file: /path/to/tidal_session.json
+
+sync:
+  # Maximum concurrent API requests
+  max_concurrent: 10
+  
+  # Rate limit (requests per second)
+  rate_limit: 10
+
+# Uncomment to only sync specific playlists
+# sync_playlists:
+#   - spotify:playlist:37i9dQZF1DXcBWIGoYBM5M  # Today's Top Hits
+#   - 1234567890abcdef                         # Another playlist ID
+
+# Uncomment to exclude specific playlists from sync
+# excluded_playlists:
+#   - spotify:playlist:37i9dQZF1DX0XUsuxWHRQd  # RapCaviar

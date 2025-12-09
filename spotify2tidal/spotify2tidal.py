@@ -7,9 +7,11 @@ class Spotify2Tidal:
 
     In order to use it, you need a valid Premium-Subscription for Spotify and an
     account at Tidal.
-    While Tidal requires just a username and password, Spotify requires some
-    work to register a third-party application to access ones account.
 
+    Tidal now uses OAuth authentication - on first run a browser will open to
+    authorize the application. The session is saved locally for future use.
+
+    Spotify requires a registered application with client ID and secret.
     A valid client ID and client secret need to be created and a redirection
     link needs to be whitelisted.
     This can be done in the Spotify developer dashboard by creating a new app.
@@ -26,10 +28,6 @@ class Spotify2Tidal:
 
     Parameters
     ----------
-    tidal_username: str
-        Username for the Tidal-account
-    tidal_password: str
-        Password for the Tidal-account
     spotify_username: str
         Username for the Spotfiy-account
     spotify_client_id: str
@@ -40,16 +38,18 @@ class Spotify2Tidal:
         URL to redirect after requesting a token, needs whitelisting
     spotify_discover_weekly_id: str, optional
         ID for the users Discover Weekly playlist
+    tidal_session_file: str or Path, optional
+        Path to store the Tidal OAuth session file
     """
+
     def __init__(
         self,
-        tidal_username,
-        tidal_password,
         spotify_username,
         spotify_client_id,
         spotify_client_secret,
         spotify_redirect_uri,
         spotify_discover_weekly_id=None,
+        tidal_session_file=None,
     ):
         self.spotify = Spotify(
             spotify_username,
@@ -58,7 +58,7 @@ class Spotify2Tidal:
             spotify_redirect_uri,
             spotify_discover_weekly_id,
         )
-        self.tidal = Tidal(tidal_username, tidal_password)
+        self.tidal = Tidal(session_file=tidal_session_file)
 
     def copy_all_spotify_playlists(self):
         """Create all your spotify playlists in tidal."""
@@ -124,9 +124,7 @@ class Spotify2Tidal:
 
         spotify_tracks = self.spotify.tracks_from_playlist(spotify_playlist)
 
-        tidal_playlist_id = self.tidal._create_playlist(
-            playlist_name, delete_existing
-        )
+        tidal_playlist_id = self.tidal._create_playlist(playlist_name, delete_existing)
 
         for track in spotify_tracks:
             artist = track["track"]["artists"][0]["name"]

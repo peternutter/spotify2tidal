@@ -1,6 +1,7 @@
 import logging
+
 import spotipy
-import spotipy.util as util
+from spotipy.oauth2 import SpotifyOAuth
 
 
 class Spotify:
@@ -19,6 +20,7 @@ class Spotify:
     discover_weekly_id: str, optional
         Playlist-ID for the 'Discover Weekly' playlist provided by Spotify
     """
+
     def __init__(
         self,
         username,
@@ -47,7 +49,7 @@ class Spotify:
             playlists = result["items"]
 
             while result["next"]:
-                result = self.spotify_sesion.next(result)
+                result = self.spotify_session.next(result)
                 playlists.extend(result["items"])
         except spotipy.client.SpotifyException:
             self._refresh_expired_token()
@@ -59,9 +61,7 @@ class Spotify:
     def saved_artists(self):
         """List with all saved artists."""
         try:
-            result = self.spotify_session.current_user_followed_artists()[
-                "artists"
-            ]
+            result = self.spotify_session.current_user_followed_artists()["artists"]
             artists = result["items"]
 
             while result["next"]:
@@ -152,7 +152,7 @@ class Spotify:
     def _connect(self):
         """Connect to Spotify and return a session object.
 
-        Use spotify's Authorization Code Flow.
+        Use spotify's Authorization Code Flow with SpotifyOAuth.
         This requires a registered client at spotify with a valid client-id,
         client-secret and some redirection-url
         More information on authorization:
@@ -160,25 +160,25 @@ class Spotify:
         https://spotipy.readthedocs.io/en/latest/#authorized-requests
         """
         scope = "user-library-read playlist-read-private user-follow-read playlist-modify-private playlist-modify-public"
-        token = util.prompt_for_user_token(
-            self.username,
-            scope=scope,
+
+        auth_manager = SpotifyOAuth(
             client_id=self._client_id,
             client_secret=self._client_secret,
             redirect_uri=self._client_redirect_uri,
+            scope=scope,
+            username=self.username,
+            open_browser=True,
         )
 
-        if not token:
-            raise ValueError("Could not connect to Spotify")
-
-        return spotipy.Spotify(auth=token)
+        return spotipy.Spotify(auth_manager=auth_manager)
 
     def _refresh_expired_token(self):
         """When the token expires after 1h, refresh it.
 
-        When the token expires, spotipy throws spotipy.client.SpotifyException.
-        To refresh the expired token, simply reauthenticate. Spotipy refreshes
-        the token automatically in case it is expired.
+        With SpotifyOAuth auth_manager, tokens are automatically refreshed.
+        This method is kept for backwards compatibility but the auth_manager
+        handles token refresh automatically.
         """
-        logging.getLogger(__name__).debug("Refreshing token")
+        logging.getLogger(__name__).debug("Token refresh handled by auth_manager")
+        # SpotifyOAuth handles refresh automatically, but reconnect if needed
         self.spotify_session = self._connect()

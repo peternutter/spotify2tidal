@@ -1,0 +1,59 @@
+[project]
+name = "spotify2tidal"
+version = "2.0.0"
+description = "Sync your Spotify library to Tidal - playlists, favorites, albums, and artists"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.10"
+authors = [
+    { name = "peternutter" }
+]
+keywords = ["spotify", "tidal", "music", "playlist", "sync", "transfer"]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "spotipy>=2.19.0",
+    "tidalapi>=0.8.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.64",
+]
+
+[project.urls]
+Homepage = "https://github.com/peternutter/spotify2tidal"
+Repository = "https://github.com/peternutter/spotify2tidal"
+
+[project.scripts]
+spotify2tidal = "spotify2tidal.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["spotify2tidal"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.1.0",
+]
