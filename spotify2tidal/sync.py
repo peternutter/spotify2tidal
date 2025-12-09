@@ -444,15 +444,21 @@ class SyncEngine:
             tasks = [self.searcher.search_track(t) for t in spotify_tracks]
             results = await atqdm.gather(*tasks, desc="Searching Tidal for favorites")
 
+            # Build list of tracks to add (filter out already existing and not found)
+            tracks_to_add = []
             for spotify_track, tidal_id in zip(spotify_tracks, results):
                 if tidal_id and tidal_id not in existing_ids:
-                    try:
-                        self.tidal.user.favorites.add_track(tidal_id)
-                        added += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to add track: {e}")
+                    tracks_to_add.append(tidal_id)
                 elif not tidal_id:
                     not_found += 1
+
+            # Add tracks with progress bar
+            for tidal_id in tqdm(tracks_to_add, desc="Adding to Tidal favorites"):
+                try:
+                    self.tidal.user.favorites.add_track(tidal_id)
+                    added += 1
+                except Exception as e:
+                    logger.warning(f"Failed to add track: {e}")
 
             logger.info(
                 f"Added {added} tracks to Tidal favorites, {not_found} not found"
