@@ -27,6 +27,8 @@ uv sync
 # With pip
 git clone https://github.com/taschenb/spotify2tidal
 cd spotify2tidal
+python3 -m venv .venv
+source .venv/bin/activate  # On Linux; activate each time
 pip install -e .
 ```
 
@@ -36,28 +38,31 @@ pip install -e .
 2. Add `http://127.0.0.1:8888/callback` to Redirect URIs
 3. Copy `config.example.yml` to `config.yml` and add your credentials
 
-## Usage
+## Usage (Without uv)
+
+If using pip (without uv), ensure your virtual environment is activated before running commands.
 
 ```bash
-# With uv
-uv run spotify2tidal --all        # Sync everything
-uv run spotify2tidal --playlists  # Sync all playlists
-uv run spotify2tidal --favorites  # Sync liked tracks
-uv run spotify2tidal --artists    # Sync followed artists
-uv run spotify2tidal --albums     # Sync saved albums
-uv run spotify2tidal -p <id>      # Sync specific playlist
+# Activate venv if not already done
+source .venv/bin/activate
 
-# With pip install
-spotify2tidal --all
+# Then run commands
+spotify2tidal --all        # Sync everything
+spotify2tidal --playlists  # Sync all playlists
+spotify2tidal --favorites  # Sync liked tracks
+spotify2tidal --artists    # Sync followed artists
+spotify2tidal --albums     # Sync saved albums
+spotify2tidal -p <id>      # Sync specific playlist
 ```
 
 On first run, browsers open for Spotify and Tidal authentication.
 
-## Tests
+## Tests (Without uv)
+
+With pip, activate the venv and run:
 
 ```bash
-uv run pytest tests/ -v
-# or
+source .venv/bin/activate
 pytest tests/ -v
 ```
 
