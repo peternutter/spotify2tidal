@@ -512,7 +512,14 @@ class SyncEngine:
             not_found = 0
 
             for album in tqdm(spotify_albums, desc="Syncing albums"):
-                tidal_id = await self.searcher.search_album(album["album"])
+                # Skip albums with missing data (removed from Spotify catalog)
+                album_data = album.get("album")
+                if not album_data or not album_data.get("artists"):
+                    logger.warning("Skipping album with missing data")
+                    not_found += 1
+                    continue
+                
+                tidal_id = await self.searcher.search_album(album_data)
                 if tidal_id:
                     try:
                         self.tidal.user.favorites.add_album(tidal_id)
@@ -522,9 +529,9 @@ class SyncEngine:
                 else:
                     not_found += 1
                     self.library.add_not_found_album(album)
-                    logger.warning(
-                        f"Album not found: {album['album']['artists'][0]['name']} - {album['album']['name']}"
-                    )
+                    artist_name = album_data.get("artists", [{}])[0].get("name", "Unknown")
+                    album_name = album_data.get("name", "Unknown")
+                    logger.warning(f"Album not found: {artist_name} - {album_name}")
 
             return added, not_found
 
