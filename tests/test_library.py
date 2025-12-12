@@ -11,6 +11,7 @@ from spotify2tidal.library import (
     export_tracks,
     export_albums,
     export_artists,
+    export_podcasts,
     export_not_found_tracks,
 )
 
@@ -113,6 +114,44 @@ class TestExportNotFoundTracks:
         result = export_not_found_tracks([sample_track], temp_dir)
         assert result.exists()
         assert result.name == "not_found_tracks.csv"
+
+
+@pytest.fixture
+def sample_podcast():
+    """Sample Spotify show/podcast object."""
+    return {
+        "show": {
+            "id": "show123",
+            "name": "Test Podcast",
+            "publisher": "Test Publisher",
+            "description": "A test podcast about testing",
+            "total_episodes": 50,
+            "external_urls": {"spotify": "https://open.spotify.com/show/show123"},
+        }
+    }
+
+
+class TestExportPodcasts:
+    """Tests for export_podcasts function."""
+
+    def test_export_podcasts_creates_csv(self, temp_dir, sample_podcast):
+        """Test that export_podcasts creates a CSV file."""
+        result = export_podcasts([sample_podcast], temp_dir)
+        assert result.exists()
+        assert result.suffix == ".csv"
+        assert result.name == "spotify_podcasts.csv"
+
+    def test_export_podcasts_content(self, temp_dir, sample_podcast):
+        """Test that exported CSV contains correct data."""
+        export_podcasts([sample_podcast], temp_dir)
+        filepath = temp_dir / "spotify_podcasts.csv"
+        
+        with open(filepath) as f:
+            content = f.read()
+        
+        assert "show123" in content
+        assert "Test Podcast" in content
+        assert "Test Publisher" in content
 
 
 class TestLibraryExporter:

@@ -1,0 +1,6 @@
+spotipy>=2.19.0
+tidalapi>=0.8.0
+pyyaml>=6.0
+tqdm>=4.64
+streamlit>=1.28.0
+watchdog>=6.0.0

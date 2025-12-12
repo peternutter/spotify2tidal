@@ -39,7 +39,8 @@ Examples:
   spotify2tidal --favorites         # Sync liked/saved tracks
   spotify2tidal --albums            # Sync saved albums
   spotify2tidal --artists           # Sync followed artists
-  spotify2tidal --all               # Sync everything
+  spotify2tidal --podcasts          # Export podcasts to CSV (Tidal doesn't support podcasts)
+  spotify2tidal --all               # Sync everything + export podcasts
   spotify2tidal --playlist <id>     # Sync specific playlist
 """,
     )
@@ -69,10 +70,15 @@ Examples:
         "--artists", "-r", action="store_true", help="Sync followed artists"
     )
     parser.add_argument(
+        "--podcasts",
+        action="store_true",
+        help="Export saved podcasts to CSV (Tidal doesn't support podcasts)",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
         dest="sync_all",
-        help="Sync everything (playlists, favorites, albums, artists)",
+        help="Sync everything (playlists, favorites, albums, artists) + export podcasts",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"
@@ -133,6 +139,9 @@ Examples:
             results["albums"] = {"added": added, "not_found": nf}
             added, nf = await engine.sync_artists()
             results["artists"] = {"added": added, "not_found": nf}
+            # Also export podcasts
+            count = await engine.export_podcasts()
+            results["podcasts"] = {"exported": count}
 
         elif args.favorites:
             added, not_found = await engine.sync_favorites()
@@ -149,6 +158,11 @@ Examples:
         elif args.playlists:
             # Sync all playlists
             results["playlists"] = await engine.sync_all_playlists()
+
+        elif args.podcasts:
+            # Export podcasts only
+            count = await engine.export_podcasts()
+            results["podcasts"] = {"exported": count}
 
         else:
             # Default: show help

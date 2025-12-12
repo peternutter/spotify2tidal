@@ -19,7 +19,8 @@ SPOTIFY_SCOPES = (
     "playlist-read-private "
     "user-follow-read "
     "playlist-modify-private "
-    "playlist-modify-public"
+    "playlist-modify-public "
+    "user-read-playback-position"  # Required for podcasts/shows
 )
 
 

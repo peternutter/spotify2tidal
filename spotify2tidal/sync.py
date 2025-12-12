@@ -369,11 +369,11 @@ class SyncEngine:
                 # Find existing or create new
                 tidal_playlist = await self._get_or_create_tidal_playlist(playlist_name)
 
-            # Get existing Tidal tracks
+            # Get existing Tidal tracks (paginated for large playlists)
             existing_tidal_ids = set()
             if tidal_playlist.num_tracks > 0:
-                existing_tracks = tidal_playlist.tracks()
-                existing_tidal_ids = {t.id for t in existing_tracks}
+                existing_tidal_ids = await self._get_all_tidal_playlist_track_ids(tidal_playlist)
+                logger.info(f"Found {len(existing_tidal_ids)} existing tracks in Tidal playlist")
 
             # Save all tracks to library export
             self.library.add_tracks(spotify_tracks)
@@ -445,9 +445,9 @@ class SyncEngine:
             # Reverse to add oldest first (so they end up at bottom in Tidal)
             spotify_tracks = list(reversed(spotify_tracks))
 
-            # Get existing Tidal favorites
-            existing_favorites = self.tidal.user.favorites.tracks()
-            existing_ids = {t.id for t in existing_favorites}
+            # Get existing Tidal favorites (paginated - must get all pages)
+            existing_ids = await self._get_all_tidal_favorite_track_ids()
+            logger.info(f"Found {len(existing_ids)} existing favorite tracks on Tidal")
 
             # Search and add
             added = 0
@@ -505,11 +505,16 @@ class SyncEngine:
             # Reverse to add oldest first (so they end up at bottom in Tidal)
             spotify_albums = list(reversed(spotify_albums))
 
+            # Get existing Tidal album favorites (paginated)
+            existing_album_ids = await self._get_all_tidal_favorite_album_ids()
+            logger.info(f"Found {len(existing_album_ids)} existing album favorites on Tidal")
+
             # Save all albums to library export
             self.library.add_albums(spotify_albums)
 
             added = 0
             not_found = 0
+            skipped = 0
 
             for album in tqdm(spotify_albums, desc="Syncing albums"):
                 # Skip albums with missing data (removed from Spotify catalog)
@@ -521,6 +526,9 @@ class SyncEngine:
                 
                 tidal_id = await self.searcher.search_album(album_data)
                 if tidal_id:
+                    if tidal_id in existing_album_ids:
+                        skipped += 1
+                        continue  # Already in Tidal favorites
                     try:
                         self.tidal.user.favorites.add_album(tidal_id)
                         added += 1
@@ -533,6 +541,7 @@ class SyncEngine:
                     album_name = album_data.get("name", "Unknown")
                     logger.warning(f"Album not found: {artist_name} - {album_name}")
 
+            logger.info(f"Albums: {added} added, {skipped} already existed, {not_found} not found")
             return added, not_found
 
         finally:
@@ -554,15 +563,23 @@ class SyncEngine:
             # Reverse to add oldest first (so they end up at bottom in Tidal)
             spotify_artists = list(reversed(spotify_artists))
 
+            # Get existing Tidal artist favorites (paginated)
+            existing_artist_ids = await self._get_all_tidal_favorite_artist_ids()
+            logger.info(f"Found {len(existing_artist_ids)} existing artist favorites on Tidal")
+
             # Save all artists to library export
             self.library.add_artists(spotify_artists)
 
             added = 0
             not_found = 0
+            skipped = 0
 
             for artist in tqdm(spotify_artists, desc="Syncing artists"):
                 tidal_id = await self.searcher.search_artist(artist["name"])
                 if tidal_id:
+                    if tidal_id in existing_artist_ids:
+                        skipped += 1
+                        continue  # Already in Tidal favorites
                     try:
                         self.tidal.user.favorites.add_artist(tidal_id)
                         added += 1
@@ -573,6 +590,7 @@ class SyncEngine:
                     self.library.add_not_found_artist(artist)
                     logger.warning(f"Artist not found: {artist['name']}")
 
+            logger.info(f"Artists: {added} added, {skipped} already existed, {not_found} not found")
             return added, not_found
 
         finally:
@@ -593,6 +611,42 @@ class SyncEngine:
             results[playlist["name"]] = {"added": added, "not_found": not_found}
 
         return results
+
+    async def export_podcasts(self) -> int:
+        """
+        Export saved podcasts/shows from Spotify to CSV.
+        
+        Note: Tidal doesn't support podcasts, so this is export-only.
+        Returns the number of podcasts exported.
+        """
+        # Get Spotify saved shows
+        podcasts = await self._get_spotify_saved_shows()
+        logger.info(f"Found {len(podcasts)} saved podcasts/shows on Spotify")
+        
+        if podcasts:
+            self.library.add_podcasts(podcasts)
+        
+        return len(podcasts)
+
+    async def _get_spotify_saved_shows(self) -> List[dict]:
+        """Get all saved shows/podcasts from Spotify."""
+        shows = []
+        try:
+            results = self.spotify.current_user_saved_shows()
+            
+            while True:
+                shows.extend(results["items"])
+                print(f"\rFetching saved podcasts from Spotify: {len(shows)} shows...", end="", flush=True)
+                
+                if not results["next"]:
+                    break
+                results = self.spotify.next(results)
+            
+            print()  # New line after progress
+        except Exception as e:
+            logger.warning(f"Could not fetch podcasts (may need to re-auth): {e}")
+        
+        return shows
 
     async def _get_spotify_playlist_tracks(self, playlist_id: str) -> List[dict]:
         """Get all tracks from a Spotify playlist."""
@@ -663,6 +717,107 @@ class SyncEngine:
         print()  # New line after progress
         return artists
 
+    async def _get_all_tidal_favorite_track_ids(self) -> Set[int]:
+        """
+        Get ALL favorite track IDs from Tidal with proper pagination.
+        
+        Tidal's favorites.tracks() only returns the first page (~100 items).
+        We need to paginate to get all favorites for proper duplicate detection.
+        """
+        all_ids = set()
+        limit = 100
+        offset = 0
+        
+        while True:
+            # Tidal favorites.tracks() accepts limit and offset
+            page = self.tidal.user.favorites.tracks(limit=limit, offset=offset)
+            if not page:
+                break
+            
+            for track in page:
+                all_ids.add(track.id)
+            
+            print(f"\rFetching existing Tidal favorites: {len(all_ids)} tracks...", end="", flush=True)
+            
+            if len(page) < limit:
+                break
+            offset += limit
+        
+        print()  # New line after progress
+        return all_ids
+
+    async def _get_all_tidal_favorite_album_ids(self) -> Set[int]:
+        """
+        Get ALL favorite album IDs from Tidal with proper pagination.
+        """
+        all_ids = set()
+        limit = 100
+        offset = 0
+        
+        while True:
+            page = self.tidal.user.favorites.albums(limit=limit, offset=offset)
+            if not page:
+                break
+            
+            for album in page:
+                all_ids.add(album.id)
+            
+            print(f"\rFetching existing Tidal album favorites: {len(all_ids)} albums...", end="", flush=True)
+            
+            if len(page) < limit:
+                break
+            offset += limit
+        
+        print()  # New line after progress
+        return all_ids
+
+    async def _get_all_tidal_favorite_artist_ids(self) -> Set[int]:
+        """
+        Get ALL favorite artist IDs from Tidal with proper pagination.
+        """
+        all_ids = set()
+        limit = 100
+        offset = 0
+        
+        while True:
+            page = self.tidal.user.favorites.artists(limit=limit, offset=offset)
+            if not page:
+                break
+            
+            for artist in page:
+                all_ids.add(artist.id)
+            
+            print(f"\rFetching existing Tidal artist favorites: {len(all_ids)} artists...", end="", flush=True)
+            
+            if len(page) < limit:
+                break
+            offset += limit
+        
+        print()  # New line after progress
+        return all_ids
+
+    async def _get_all_tidal_playlist_track_ids(self, playlist: tidalapi.Playlist) -> Set[int]:
+        """
+        Get ALL track IDs from a Tidal playlist with proper pagination.
+        """
+        all_ids = set()
+        limit = 100
+        offset = 0
+        
+        while True:
+            page = playlist.tracks(limit=limit, offset=offset)
+            if not page:
+                break
+            
+            for track in page:
+                all_ids.add(track.id)
+            
+            if len(page) < limit:
+                break
+            offset += limit
+        
+        return all_ids
+
     async def _get_or_create_tidal_playlist(self, name: str) -> tidalapi.Playlist:
         """Find existing playlist by name or create new one."""
         playlists = self.tidal.user.playlists()
@@ -691,3 +846,79 @@ class SyncEngine:
             logger.info("No library data to export")
             return {"files": {}, "stats": stats}
 
+    async def export_tidal_library(self) -> dict:
+        """
+        Export current Tidal library (favorites) to CSV files.
+        
+        This fetches all Tidal favorites and exports them to CSVs.
+        Useful for backup or for future bidirectional sync.
+        
+        Returns dict with paths to created files.
+        """
+        from .library import (
+            export_tidal_tracks,
+            export_tidal_albums,
+            export_tidal_artists,
+        )
+        
+        results = {}
+        
+        # Fetch and export Tidal tracks
+        print("Fetching Tidal favorite tracks...")
+        tracks = []
+        limit = 100
+        offset = 0
+        while True:
+            page = self.tidal.user.favorites.tracks(limit=limit, offset=offset)
+            if not page:
+                break
+            tracks.extend(page)
+            print(f"\rFetching Tidal tracks: {len(tracks)}...", end="", flush=True)
+            if len(page) < limit:
+                break
+            offset += limit
+        print()
+        
+        if tracks:
+            results["tidal_tracks"] = export_tidal_tracks(tracks, self.library.export_dir)
+            logger.info(f"Exported {len(tracks)} Tidal tracks")
+        
+        # Fetch and export Tidal albums
+        print("Fetching Tidal favorite albums...")
+        albums = []
+        offset = 0
+        while True:
+            page = self.tidal.user.favorites.albums(limit=limit, offset=offset)
+            if not page:
+                break
+            albums.extend(page)
+            print(f"\rFetching Tidal albums: {len(albums)}...", end="", flush=True)
+            if len(page) < limit:
+                break
+            offset += limit
+        print()
+        
+        if albums:
+            results["tidal_albums"] = export_tidal_albums(albums, self.library.export_dir)
+            logger.info(f"Exported {len(albums)} Tidal albums")
+        
+        # Fetch and export Tidal artists
+        print("Fetching Tidal favorite artists...")
+        artists = []
+        offset = 0
+        while True:
+            page = self.tidal.user.favorites.artists(limit=limit, offset=offset)
+            if not page:
+                break
+            artists.extend(page)
+            print(f"\rFetching Tidal artists: {len(artists)}...", end="", flush=True)
+            if len(page) < limit:
+                break
+            offset += limit
+        print()
+        
+        if artists:
+            results["tidal_artists"] = export_tidal_artists(artists, self.library.export_dir)
+            logger.info(f"Exported {len(artists)} Tidal artists")
+        
+        return results

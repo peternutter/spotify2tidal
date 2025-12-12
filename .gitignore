@@ -4,3 +4,5 @@ config.yml
 .venv/
 __pycache__/
 library
+.cache
+.streamlit/secrets.toml
