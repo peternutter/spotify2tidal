@@ -283,9 +283,18 @@ class TidalSearcher:
 
     async def search_album(self, spotify_album: dict) -> Optional[int]:
         """Search for a Spotify album on Tidal."""
+        spotify_id = spotify_album.get("id")
+        if not spotify_id:
+            return None
+
         artists = spotify_album.get("artists", [])
         if not artists:
             return None
+
+        # Check cache first - ensures consistent IDs across runs
+        cached = self.cache.get_album_match(spotify_id)
+        if cached is not None:
+            return cached if cached > 0 else None
 
         query = f"{simplify(spotify_album['name'])} {simplify(artists[0]['name'])}"
 
@@ -297,14 +306,26 @@ class TidalSearcher:
 
             for album in results.get("albums", []):
                 if TrackMatcher.album_match(album, spotify_album):
+                    # Cache the match for future runs
+                    self.cache.cache_album_match(spotify_id, album.id)
                     return album.id
         except Exception as e:
             logger.warning(f"Album search failed: {e}")
 
         return None
 
-    async def search_artist(self, name: str) -> Optional[int]:
-        """Search for an artist on Tidal."""
+    async def search_artist(self, spotify_artist: dict) -> Optional[int]:
+        """Search for a Spotify artist on Tidal."""
+        spotify_id = spotify_artist.get("id")
+        name = spotify_artist.get("name")
+        if not spotify_id or not name:
+            return None
+
+        # Check cache first - ensures consistent IDs across runs
+        cached = self.cache.get_artist_match(spotify_id)
+        if cached is not None:
+            return cached if cached > 0 else None
+
         await self.rate_limiter.acquire()
         try:
             results = await asyncio.to_thread(
@@ -313,8 +334,12 @@ class TidalSearcher:
 
             for artist in results.get("artists", []):
                 if artist.name.lower() == name.lower():
+                    # Cache the match for future runs
+                    self.cache.cache_artist_match(spotify_id, artist.id)
                     return artist.id
                 if normalize(artist.name.lower()) == normalize(name.lower()):
+                    # Cache the match for future runs
+                    self.cache.cache_artist_match(spotify_id, artist.id)
                     return artist.id
         except Exception as e:
             logger.warning(f"Artist search failed: {e}")
@@ -372,8 +397,12 @@ class SyncEngine:
             # Get existing Tidal tracks (paginated for large playlists)
             existing_tidal_ids = set()
             if tidal_playlist.num_tracks > 0:
-                existing_tidal_ids = await self._get_all_tidal_playlist_track_ids(tidal_playlist)
-                logger.info(f"Found {len(existing_tidal_ids)} existing tracks in Tidal playlist")
+                existing_tidal_ids = await self._get_all_tidal_playlist_track_ids(
+                    tidal_playlist
+                )
+                logger.info(
+                    f"Found {len(existing_tidal_ids)} existing tracks in Tidal playlist"
+                )
 
             # Save all tracks to library export
             self.library.add_tracks(spotify_tracks)
@@ -429,7 +458,7 @@ class SyncEngine:
     async def sync_favorites(self) -> Tuple[int, int]:
         """
         Sync saved/liked tracks from Spotify to Tidal favorites.
-        
+
         Items are added oldest-first so they appear at the bottom in Tidal,
         preserving the chronological order from Spotify.
         """
@@ -492,7 +521,7 @@ class SyncEngine:
     async def sync_albums(self) -> Tuple[int, int]:
         """
         Sync saved albums from Spotify to Tidal.
-        
+
         Albums are added oldest-first so they appear at the bottom in Tidal,
         preserving the chronological order from Spotify.
         """
@@ -507,7 +536,9 @@ class SyncEngine:
 
             # Get existing Tidal album favorites (paginated)
             existing_album_ids = await self._get_all_tidal_favorite_album_ids()
-            logger.info(f"Found {len(existing_album_ids)} existing album favorites on Tidal")
+            logger.info(
+                f"Found {len(existing_album_ids)} existing album favorites on Tidal"
+            )
 
             # Save all albums to library export
             self.library.add_albums(spotify_albums)
@@ -523,7 +554,7 @@ class SyncEngine:
                     logger.warning("Skipping album with missing data")
                     not_found += 1
                     continue
-                
+
                 tidal_id = await self.searcher.search_album(album_data)
                 if tidal_id:
                     if tidal_id in existing_album_ids:
@@ -537,11 +568,15 @@ class SyncEngine:
                 else:
                     not_found += 1
                     self.library.add_not_found_album(album)
-                    artist_name = album_data.get("artists", [{}])[0].get("name", "Unknown")
+                    artist_name = album_data.get("artists", [{}])[0].get(
+                        "name", "Unknown"
+                    )
                     album_name = album_data.get("name", "Unknown")
                     logger.warning(f"Album not found: {artist_name} - {album_name}")
 
-            logger.info(f"Albums: {added} added, {skipped} already existed, {not_found} not found")
+            logger.info(
+                f"Albums: {added} added, {skipped} already existed, {not_found} not found"
+            )
             return added, not_found
 
         finally:
@@ -550,7 +585,7 @@ class SyncEngine:
     async def sync_artists(self) -> Tuple[int, int]:
         """
         Sync followed artists from Spotify to Tidal.
-        
+
         Artists are added oldest-first so they appear at the bottom in Tidal,
         preserving the chronological order from Spotify.
         """
@@ -565,7 +600,9 @@ class SyncEngine:
 
             # Get existing Tidal artist favorites (paginated)
             existing_artist_ids = await self._get_all_tidal_favorite_artist_ids()
-            logger.info(f"Found {len(existing_artist_ids)} existing artist favorites on Tidal")
+            logger.info(
+                f"Found {len(existing_artist_ids)} existing artist favorites on Tidal"
+            )
 
             # Save all artists to library export
             self.library.add_artists(spotify_artists)
@@ -575,7 +612,7 @@ class SyncEngine:
             skipped = 0
 
             for artist in tqdm(spotify_artists, desc="Syncing artists"):
-                tidal_id = await self.searcher.search_artist(artist["name"])
+                tidal_id = await self.searcher.search_artist(artist)
                 if tidal_id:
                     if tidal_id in existing_artist_ids:
                         skipped += 1
@@ -590,7 +627,9 @@ class SyncEngine:
                     self.library.add_not_found_artist(artist)
                     logger.warning(f"Artist not found: {artist['name']}")
 
-            logger.info(f"Artists: {added} added, {skipped} already existed, {not_found} not found")
+            logger.info(
+                f"Artists: {added} added, {skipped} already existed, {not_found} not found"
+            )
             return added, not_found
 
         finally:
@@ -615,17 +654,17 @@ class SyncEngine:
     async def export_podcasts(self) -> int:
         """
         Export saved podcasts/shows from Spotify to CSV.
-        
+
         Note: Tidal doesn't support podcasts, so this is export-only.
         Returns the number of podcasts exported.
         """
         # Get Spotify saved shows
         podcasts = await self._get_spotify_saved_shows()
         logger.info(f"Found {len(podcasts)} saved podcasts/shows on Spotify")
-        
+
         if podcasts:
             self.library.add_podcasts(podcasts)
-        
+
         return len(podcasts)
 
     async def _get_spotify_saved_shows(self) -> List[dict]:
@@ -633,19 +672,23 @@ class SyncEngine:
         shows = []
         try:
             results = self.spotify.current_user_saved_shows()
-            
+
             while True:
                 shows.extend(results["items"])
-                print(f"\rFetching saved podcasts from Spotify: {len(shows)} shows...", end="", flush=True)
-                
+                print(
+                    f"\rFetching saved podcasts from Spotify: {len(shows)} shows...",
+                    end="",
+                    flush=True,
+                )
+
                 if not results["next"]:
                     break
                 results = self.spotify.next(results)
-            
+
             print()  # New line after progress
         except Exception as e:
             logger.warning(f"Could not fetch podcasts (may need to re-auth): {e}")
-        
+
         return shows
 
     async def _get_spotify_playlist_tracks(self, playlist_id: str) -> List[dict]:
@@ -675,8 +718,12 @@ class SyncEngine:
                 if item["track"]:
                     tracks.append(item["track"])
 
-            print(f"\rFetching saved tracks from Spotify: {len(tracks)} tracks...", end="", flush=True)
-            
+            print(
+                f"\rFetching saved tracks from Spotify: {len(tracks)} tracks...",
+                end="",
+                flush=True,
+            )
+
             if not results["next"]:
                 break
             results = self.spotify.next(results)
@@ -692,8 +739,12 @@ class SyncEngine:
 
         while True:
             albums.extend(results["items"])
-            print(f"\rFetching saved albums from Spotify: {len(albums)} albums...", end="", flush=True)
-            
+            print(
+                f"\rFetching saved albums from Spotify: {len(albums)} albums...",
+                end="",
+                flush=True,
+            )
+
             if not results["next"]:
                 break
             results = self.spotify.next(results)
@@ -708,8 +759,12 @@ class SyncEngine:
 
         while True:
             artists.extend(results["items"])
-            print(f"\rFetching followed artists from Spotify: {len(artists)} artists...", end="", flush=True)
-            
+            print(
+                f"\rFetching followed artists from Spotify: {len(artists)} artists...",
+                end="",
+                flush=True,
+            )
+
             if not results["next"]:
                 break
             results = self.spotify.next(results)["artists"]
@@ -720,29 +775,33 @@ class SyncEngine:
     async def _get_all_tidal_favorite_track_ids(self) -> Set[int]:
         """
         Get ALL favorite track IDs from Tidal with proper pagination.
-        
+
         Tidal's favorites.tracks() only returns the first page (~100 items).
         We need to paginate to get all favorites for proper duplicate detection.
         """
         all_ids = set()
         limit = 100
         offset = 0
-        
+
         while True:
             # Tidal favorites.tracks() accepts limit and offset
             page = self.tidal.user.favorites.tracks(limit=limit, offset=offset)
             if not page:
                 break
-            
+
             for track in page:
                 all_ids.add(track.id)
-            
-            print(f"\rFetching existing Tidal favorites: {len(all_ids)} tracks...", end="", flush=True)
-            
+
+            print(
+                f"\rFetching existing Tidal favorites: {len(all_ids)} tracks...",
+                end="",
+                flush=True,
+            )
+
             if len(page) < limit:
                 break
             offset += limit
-        
+
         print()  # New line after progress
         return all_ids
 
@@ -753,21 +812,25 @@ class SyncEngine:
         all_ids = set()
         limit = 100
         offset = 0
-        
+
         while True:
             page = self.tidal.user.favorites.albums(limit=limit, offset=offset)
             if not page:
                 break
-            
+
             for album in page:
                 all_ids.add(album.id)
-            
-            print(f"\rFetching existing Tidal album favorites: {len(all_ids)} albums...", end="", flush=True)
-            
+
+            print(
+                f"\rFetching existing Tidal album favorites: {len(all_ids)} albums...",
+                end="",
+                flush=True,
+            )
+
             if len(page) < limit:
                 break
             offset += limit
-        
+
         print()  # New line after progress
         return all_ids
 
@@ -778,44 +841,50 @@ class SyncEngine:
         all_ids = set()
         limit = 100
         offset = 0
-        
+
         while True:
             page = self.tidal.user.favorites.artists(limit=limit, offset=offset)
             if not page:
                 break
-            
+
             for artist in page:
                 all_ids.add(artist.id)
-            
-            print(f"\rFetching existing Tidal artist favorites: {len(all_ids)} artists...", end="", flush=True)
-            
+
+            print(
+                f"\rFetching existing Tidal artist favorites: {len(all_ids)} artists...",
+                end="",
+                flush=True,
+            )
+
             if len(page) < limit:
                 break
             offset += limit
-        
+
         print()  # New line after progress
         return all_ids
 
-    async def _get_all_tidal_playlist_track_ids(self, playlist: tidalapi.Playlist) -> Set[int]:
+    async def _get_all_tidal_playlist_track_ids(
+        self, playlist: tidalapi.Playlist
+    ) -> Set[int]:
         """
         Get ALL track IDs from a Tidal playlist with proper pagination.
         """
         all_ids = set()
         limit = 100
         offset = 0
-        
+
         while True:
             page = playlist.tracks(limit=limit, offset=offset)
             if not page:
                 break
-            
+
             for track in page:
                 all_ids.add(track.id)
-            
+
             if len(page) < limit:
                 break
             offset += limit
-        
+
         return all_ids
 
     async def _get_or_create_tidal_playlist(self, name: str) -> tidalapi.Playlist:
@@ -830,12 +899,12 @@ class SyncEngine:
     def export_library(self) -> dict:
         """
         Export collected library data to CSV files.
-        
+
         Returns dict with paths to created files and statistics.
         """
         stats = self.library.get_stats()
         logger.info(f"Library stats: {stats}")
-        
+
         if any(stats.values()):
             exported = self.library.export_all()
             logger.info(f"Exported library data to: {self.library.export_dir}")
@@ -849,20 +918,20 @@ class SyncEngine:
     async def export_tidal_library(self) -> dict:
         """
         Export current Tidal library (favorites) to CSV files.
-        
+
         This fetches all Tidal favorites and exports them to CSVs.
         Useful for backup or for future bidirectional sync.
-        
+
         Returns dict with paths to created files.
         """
         from .library import (
-            export_tidal_tracks,
             export_tidal_albums,
             export_tidal_artists,
+            export_tidal_tracks,
         )
-        
+
         results = {}
-        
+
         # Fetch and export Tidal tracks
         print("Fetching Tidal favorite tracks...")
         tracks = []
@@ -878,11 +947,13 @@ class SyncEngine:
                 break
             offset += limit
         print()
-        
+
         if tracks:
-            results["tidal_tracks"] = export_tidal_tracks(tracks, self.library.export_dir)
+            results["tidal_tracks"] = export_tidal_tracks(
+                tracks, self.library.export_dir
+            )
             logger.info(f"Exported {len(tracks)} Tidal tracks")
-        
+
         # Fetch and export Tidal albums
         print("Fetching Tidal favorite albums...")
         albums = []
@@ -897,11 +968,13 @@ class SyncEngine:
                 break
             offset += limit
         print()
-        
+
         if albums:
-            results["tidal_albums"] = export_tidal_albums(albums, self.library.export_dir)
+            results["tidal_albums"] = export_tidal_albums(
+                albums, self.library.export_dir
+            )
             logger.info(f"Exported {len(albums)} Tidal albums")
-        
+
         # Fetch and export Tidal artists
         print("Fetching Tidal favorite artists...")
         artists = []
@@ -916,9 +989,11 @@ class SyncEngine:
                 break
             offset += limit
         print()
-        
+
         if artists:
-            results["tidal_artists"] = export_tidal_artists(artists, self.library.export_dir)
+            results["tidal_artists"] = export_tidal_artists(
+                artists, self.library.export_dir
+            )
             logger.info(f"Exported {len(artists)} Tidal artists")
-        
+
         return results

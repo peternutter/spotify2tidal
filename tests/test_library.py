@@ -1,18 +1,17 @@
 """Tests for the library export module."""
 
 import tempfile
-import os
 from pathlib import Path
 
 import pytest
 
 from spotify2tidal.library import (
     LibraryExporter,
-    export_tracks,
     export_albums,
     export_artists,
-    export_podcasts,
     export_not_found_tracks,
+    export_podcasts,
+    export_tracks,
 )
 
 
@@ -76,10 +75,10 @@ class TestExportTracks:
         """Test that exported CSV contains correct data."""
         export_tracks([sample_track], temp_dir)
         filepath = temp_dir / "spotify_tracks.csv"
-        
+
         with open(filepath) as f:
             content = f.read()
-        
+
         assert "spotify123" in content
         assert "Test Song" in content
         assert "Test Artist" in content
@@ -145,10 +144,10 @@ class TestExportPodcasts:
         """Test that exported CSV contains correct data."""
         export_podcasts([sample_podcast], temp_dir)
         filepath = temp_dir / "spotify_podcasts.csv"
-        
+
         with open(filepath) as f:
             content = f.read()
-        
+
         assert "show123" in content
         assert "Test Podcast" in content
         assert "Test Publisher" in content
@@ -176,9 +175,9 @@ class TestLibraryExporter:
         exporter.add_albums([sample_album])
         exporter.add_artists([sample_artist])
         exporter.add_not_found_track(sample_track)
-        
+
         result = exporter.export_all()
-        
+
         assert "tracks" in result
         assert "albums" in result
         assert "artists" in result
@@ -189,9 +188,9 @@ class TestLibraryExporter:
         exporter = LibraryExporter(temp_dir)
         exporter.add_tracks([sample_track, sample_track])
         exporter.add_not_found_track(sample_track)
-        
+
         stats = exporter.get_stats()
-        
+
         assert stats["tracks"] == 2
         assert stats["not_found_tracks"] == 1
         assert stats["albums"] == 0

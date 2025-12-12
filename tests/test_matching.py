@@ -1,7 +1,5 @@
 """Tests for the track matching logic."""
 
-import pytest
-
 from spotify2tidal.sync import TrackMatcher, normalize, simplify
 
 
@@ -44,24 +42,27 @@ class TestTrackMatcher:
 
     def test_duration_match_exact(self):
         """Exact duration matches."""
+
         class FakeTrack:
             duration = 180
-        
+
         spotify_track = {"duration_ms": 180000}
         assert TrackMatcher.duration_match(FakeTrack(), spotify_track) is True
 
     def test_duration_match_within_tolerance(self):
         """Duration within 2 second tolerance matches."""
+
         class FakeTrack:
             duration = 180
-        
+
         spotify_track = {"duration_ms": 181500}  # 1.5 seconds difference
         assert TrackMatcher.duration_match(FakeTrack(), spotify_track) is True
 
     def test_duration_mismatch(self):
         """Duration outside tolerance doesn't match."""
+
         class FakeTrack:
             duration = 180
-        
+
         spotify_track = {"duration_ms": 185000}  # 5 seconds difference
         assert TrackMatcher.duration_match(FakeTrack(), spotify_track) is False

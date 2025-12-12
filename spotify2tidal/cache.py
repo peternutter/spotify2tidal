@@ -11,7 +11,7 @@ from typing import Optional
 
 class MatchCache:
     """
-    SQLite-based cache for track matches and search failures.
+    SQLite-based cache for track/album matches and search failures.
     Persists between runs to avoid redundant API calls.
     """
 
@@ -26,6 +26,20 @@ class MatchCache:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS track_matches (
+                    spotify_id TEXT PRIMARY KEY,
+                    tidal_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS album_matches (
+                    spotify_id TEXT PRIMARY KEY,
+                    tidal_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS artist_matches (
                     spotify_id TEXT PRIMARY KEY,
                     tidal_id INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -58,6 +72,55 @@ class MatchCache:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO track_matches (spotify_id, tidal_id)
+                VALUES (?, ?)
+            """,
+                (spotify_id, tidal_id),
+            )
+            conn.commit()
+
+    def get_album_match(self, spotify_id: str) -> Optional[int]:
+        """
+        Get cached Tidal album ID for a Spotify album.
+        Returns None if not cached.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT tidal_id FROM album_matches WHERE spotify_id = ?", (spotify_id,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def cache_album_match(self, spotify_id: str, tidal_id: int):
+        """Cache a successful album match."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO album_matches (spotify_id, tidal_id)
+                VALUES (?, ?)
+            """,
+                (spotify_id, tidal_id),
+            )
+            conn.commit()
+
+    def get_artist_match(self, spotify_id: str) -> Optional[int]:
+        """
+        Get cached Tidal artist ID for a Spotify artist.
+        Returns None if not cached.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT tidal_id FROM artist_matches WHERE spotify_id = ?",
+                (spotify_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def cache_artist_match(self, spotify_id: str, tidal_id: int):
+        """Cache a successful artist match."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO artist_matches (spotify_id, tidal_id)
                 VALUES (?, ?)
             """,
                 (spotify_id, tidal_id),
@@ -128,14 +191,29 @@ class MatchCache:
         """Clear all cached data."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("DELETE FROM track_matches")
+            conn.execute("DELETE FROM album_matches")
+            conn.execute("DELETE FROM artist_matches")
             conn.execute("DELETE FROM search_failures")
             conn.commit()
 
     def get_stats(self) -> dict:
         """Get cache statistics."""
         with sqlite3.connect(self.db_path) as conn:
-            matches = conn.execute("SELECT COUNT(*) FROM track_matches").fetchone()[0]
+            track_matches = conn.execute(
+                "SELECT COUNT(*) FROM track_matches"
+            ).fetchone()[0]
+            album_matches = conn.execute(
+                "SELECT COUNT(*) FROM album_matches"
+            ).fetchone()[0]
+            artist_matches = conn.execute(
+                "SELECT COUNT(*) FROM artist_matches"
+            ).fetchone()[0]
             failures = conn.execute("SELECT COUNT(*) FROM search_failures").fetchone()[
                 0
             ]
-            return {"cached_matches": matches, "cached_failures": failures}
+            return {
+                "cached_track_matches": track_matches,
+                "cached_album_matches": album_matches,
+                "cached_artist_matches": artist_matches,
+                "cached_failures": failures,
+            }

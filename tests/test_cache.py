@@ -1,8 +1,7 @@
 """Tests for the caching layer."""
 
-import tempfile
 import os
-from pathlib import Path
+import tempfile
 
 import pytest
 
@@ -12,7 +11,7 @@ from spotify2tidal.cache import MatchCache
 @pytest.fixture
 def temp_cache():
     """Create a temporary cache for testing."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
     try:
         cache = MatchCache(db_path)
