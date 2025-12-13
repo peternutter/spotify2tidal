@@ -3,6 +3,7 @@ Authentication helpers for Spotify and Tidal OAuth flows.
 Used by the web application for user login.
 """
 
+import os
 from typing import Optional
 
 import streamlit as st
@@ -10,12 +11,33 @@ import streamlit as st
 from .state import add_log
 
 
+def _infer_local_streamlit_redirect_uri() -> str:
+    """
+    Infer a reasonable redirect URI for local Streamlit runs.
+
+    Spotify needs this to match exactly one of the app's registered Redirect URIs.
+    """
+    port = st.get_option("server.port") or 8501
+    address = st.get_option("server.address") or "localhost"
+    # Streamlit is often served on 0.0.0.0 locally; browsers should use localhost.
+    if address in ("0.0.0.0", "127.0.0.1"):
+        address = "localhost"
+    return f"http://{address}:{port}/"
+
+
 def get_spotify_credentials() -> Optional[dict]:
-    """Get Spotify credentials from Streamlit secrets."""
+    """Get Spotify credentials from Streamlit secrets (or env vars for local dev)."""
     try:
-        client_id = st.secrets.get("SPOTIFY_CLIENT_ID")
-        client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET")
-        redirect_uri = st.secrets.get("SPOTIFY_REDIRECT_URI")
+        # Prefer Streamlit secrets (Streamlit Cloud / Settings → Secrets)
+        client_id = st.secrets.get("SPOTIFY_CLIENT_ID") or os.environ.get(
+            "SPOTIFY_CLIENT_ID"
+        )
+        client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET") or os.environ.get(
+            "SPOTIFY_CLIENT_SECRET"
+        )
+        redirect_uri = st.secrets.get("SPOTIFY_REDIRECT_URI") or os.environ.get(
+            "SPOTIFY_REDIRECT_URI"
+        )
 
         if not client_id or not client_secret:
             add_log("error", "Missing Spotify credentials in secrets")
@@ -27,11 +49,28 @@ def get_spotify_credentials() -> Optional[dict]:
             return None
 
         if not redirect_uri:
-            add_log("error", "Missing SPOTIFY_REDIRECT_URI in secrets")
+            # For local runs, default to the Streamlit server URL (e.g. http://localhost:8501/)
+            redirect_uri = _infer_local_streamlit_redirect_uri()
+            add_log(
+                "warning",
+                "SPOTIFY_REDIRECT_URI not set; using local Streamlit URL "
+                f"({redirect_uri}).",
+            )
+
+        # Guardrail: 8888/callback is the CLI default;
+        # Streamlit webapp won't be listening there.
+        if "127.0.0.1:8888" in redirect_uri or "localhost:8888" in redirect_uri:
             st.session_state.last_error = (
-                "**Missing Redirect URI**\n\n"
-                "Set `SPOTIFY_REDIRECT_URI` in secrets to your app URL "
-                "(e.g., `https://spotify2tidal.streamlit.app/`)"
+                "**Spotify Redirect URI is set to the CLI callback**\n\n"
+                f"Your redirect URI is currently:\n`{redirect_uri}`\n\n"
+                "For the Streamlit webapp, set `SPOTIFY_REDIRECT_URI` to your "
+                "Streamlit URL (usually `http://localhost:8501/`) and add the "
+                "same value in the Spotify Developer Dashboard → your app → "
+                "Edit Settings → Redirect URIs.\n\n"
+                "Then restart the Streamlit app and try again."
+            )
+            add_log(
+                "error", "Spotify redirect URI points to :8888 (CLI), not Streamlit."
             )
             return None
 

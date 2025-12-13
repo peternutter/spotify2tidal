@@ -26,8 +26,8 @@ from webapp.sync_runner import run_sync
 
 # Page configuration
 st.set_page_config(
-    page_title="Spotify → Tidal Sync",
-    page_icon="🎵",
+    page_title="Spotify to Tidal Sync",
+    page_icon="S",
     layout="centered",
     initial_sidebar_state="expanded",
 )
@@ -39,7 +39,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 def render_sidebar():
     """Render the sidebar with connections and settings."""
     with st.sidebar:
-        st.header("🔗 Connections")
+        st.header("Connections")
 
         render_spotify_connection()
         st.divider()
@@ -59,14 +59,14 @@ def render_sidebar():
 
 def render_main():
     """Render the main content area."""
-    st.title("🎵 Spotify → Tidal Sync")
-
     st.markdown(
-        """
-    <p style="text-align: center; color: #8b949e; margin-bottom: 2rem;">
-        Transfer your Spotify library to Tidal with one click
-    </p>
-    """,
+        '<h1 class="main-title">Spotify to Tidal Sync</h1>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p class="main-subtitle">'
+        "Transfer your Spotify library to Tidal with one click"
+        "</p>",
         unsafe_allow_html=True,
     )
 
@@ -76,11 +76,10 @@ def render_main():
     if not is_ready():
         st.markdown(
             """
-            <div class="status-card" style="text-align: center; padding: 2rem;">
-                <p style="font-size: 1.2rem; margin-bottom: 1rem;">👈 Get Started</p>
-                <p style="color: #8b949e;">
-                    Connect to Spotify and Tidal in the sidebar to sync.
-                </p>
+            <div class="get-started-card">
+                <h3>🎵 Get Started</h3>
+                <p>Connect to Spotify and Tidal in the sidebar to begin
+                syncing your library.</p>
             </div>
             """,
             unsafe_allow_html=True,
@@ -93,18 +92,16 @@ def render_main():
     col1, col2 = st.columns(2)
 
     with col1:
-        sync_all = st.checkbox(
-            "🎯 Everything (recommended)", value=True, key="sync_all"
-        )
+        sync_all = st.checkbox("Everything (recommended)", value=True, key="sync_all")
 
     with col2:
         if not sync_all:
-            playlists = st.checkbox("📝 Playlists", value=True, key="sync_playlists")
-            favorites = st.checkbox("❤️ Liked Songs", value=True, key="sync_favorites")
-            albums = st.checkbox("💿 Saved Albums", value=True, key="sync_albums")
-            artists = st.checkbox("🎤 Followed Artists", value=True, key="sync_artists")
+            playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
+            favorites = st.checkbox("Liked Songs", value=True, key="sync_favorites")
+            albums = st.checkbox("Saved Albums", value=True, key="sync_albums")
+            artists = st.checkbox("Followed Artists", value=True, key="sync_artists")
             podcasts = st.checkbox(
-                "🎙️ Podcasts (export only)", value=False, key="sync_podcasts"
+                "Podcasts (export only)", value=False, key="sync_podcasts"
             )
         else:
             playlists = favorites = albums = artists = True
@@ -114,7 +111,7 @@ def render_main():
 
     # Sync button
     st.markdown('<div class="sync-btn">', unsafe_allow_html=True)
-    if st.button("🚀 Start Sync", disabled=st.session_state.sync_running):
+    if st.button("Start Sync", disabled=st.session_state.sync_running):
         st.session_state.sync_running = True
         add_log("info", "Starting sync operation...")
 

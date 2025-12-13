@@ -54,7 +54,9 @@ pip install -e .
 ## Setup
 
 1. Create a Spotify app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
-2. Add `http://127.0.0.1:8888/callback` to Redirect URIs
+2. Add a Redirect URI depending on how you run the project:
+   - CLI: `http://127.0.0.1:8888/callback`
+   - Streamlit webapp (local): `http://localhost:8501/`
 3. Copy `config.example.yml` to `config.yml` and add your credentials
 
 ## CLI Usage

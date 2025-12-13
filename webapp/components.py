@@ -19,7 +19,7 @@ from .state import clear_logs
 def render_activity_log():
     """Render the activity log panel."""
     if st.session_state.sync_logs:
-        with st.expander("📋 Activity Log", expanded=False):
+        with st.expander("Activity Log", expanded=False):
             log_html = '<div class="activity-log">'
             for entry in reversed(st.session_state.sync_logs[-50:]):
                 time_str = entry.timestamp.strftime("%H:%M:%S")
@@ -37,7 +37,7 @@ def render_activity_log():
 
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🗑️ Clear Log", key="clear_log"):
+                if st.button("Clear Log", key="clear_log"):
                     clear_logs()
                     st.rerun()
             with col2:
@@ -47,7 +47,7 @@ def render_activity_log():
                     for e in st.session_state.sync_logs
                 )
                 st.download_button(
-                    "📥 Download Log",
+                    "Download Log",
                     data=log_text,
                     file_name="sync_log.txt",
                     mime="text/plain",
@@ -58,7 +58,7 @@ def render_activity_log():
 def render_troubleshooting():
     """Render troubleshooting panel if there's an error."""
     if st.session_state.last_error:
-        with st.expander("🔧 Troubleshooting", expanded=True):
+        with st.expander("Troubleshooting", expanded=True):
             st.markdown(
                 f'<div class="error-card">{st.session_state.last_error}</div>',
                 unsafe_allow_html=True,
@@ -74,9 +74,9 @@ def render_spotify_connection():
     if st.session_state.spotify_connected:
         username = st.session_state.get("spotify_user", "Unknown")
         st.markdown(
-            f"""<div class="status-card">
+            f"""<div class="connection-card connected">
                 <span class="status-dot status-connected"></span>
-                Connected as <strong>{username}</strong>
+                <span>Connected as <strong>{username}</strong></span>
             </div>""",
             unsafe_allow_html=True,
         )
@@ -89,12 +89,11 @@ def render_spotify_connection():
         )
         st.caption("You'll be redirected back here after login.")
     else:
-        with st.container():
-            st.markdown('<div class="spotify-btn">', unsafe_allow_html=True)
-            if st.button("🎵 Connect Spotify", key="spotify_connect"):
-                connect_spotify()
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+        if st.button(
+            "Connect Spotify", key="spotify_connect", use_container_width=True
+        ):
+            connect_spotify()
+            st.rerun()
 
 
 def render_tidal_connection():
@@ -102,18 +101,18 @@ def render_tidal_connection():
     st.subheader("Tidal")
     if st.session_state.tidal_connected:
         st.markdown(
-            """<div class="status-card">
+            """<div class="connection-card connected">
                 <span class="status-dot status-connected"></span>
-                Connected to Tidal
+                <span>Connected to Tidal</span>
             </div>""",
             unsafe_allow_html=True,
         )
     elif st.session_state.tidal_login_url:
         st.info("Complete login in the popup:")
         st.code(st.session_state.tidal_device_code, language=None)
-        st.link_button("🔗 Open Tidal Login", st.session_state.tidal_login_url)
+        st.link_button("🌊 Open Tidal Login", st.session_state.tidal_login_url)
 
-        if st.button("✓ I've logged in"):
+        if st.button("✓ I've logged in", use_container_width=True):
             if check_tidal_login():
                 st.rerun()
             else:
@@ -122,12 +121,9 @@ def render_tidal_connection():
                     "Please complete the login and try again."
                 )
     else:
-        with st.container():
-            st.markdown('<div class="tidal-btn">', unsafe_allow_html=True)
-            if st.button("🌊 Connect Tidal", key="tidal_connect"):
-                start_tidal_login()
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+        if st.button("Connect Tidal", key="tidal_connect", use_container_width=True):
+            start_tidal_login()
+            st.rerun()
 
 
 def render_connection_status():
@@ -136,7 +132,7 @@ def render_connection_status():
     ready = st.session_state.spotify_connected and st.session_state.tidal_connected
     if ready:
         st.markdown(
-            '<div class="success-card">✅ Ready to sync!</div>',
+            '<div class="success-card">✅ Ready to sync</div>',
             unsafe_allow_html=True,
         )
     else:
@@ -153,7 +149,7 @@ def render_connection_status():
 
 def render_performance_settings():
     """Render performance settings sliders."""
-    st.subheader("⚡ Performance")
+    st.subheader("Performance")
     st.session_state.max_concurrent = st.slider(
         "Concurrent requests",
         min_value=1,
@@ -175,7 +171,7 @@ def render_sync_results(results: dict):
     """Render sync results with metrics and download button."""
     st.divider()
     st.markdown(
-        '<div class="success-card"><h3>✅ Sync Complete!</h3></div>',
+        '<div class="success-card"><h3>Sync Complete</h3></div>',
         unsafe_allow_html=True,
     )
 
@@ -213,7 +209,7 @@ def render_sync_results(results: dict):
         zip_buffer.seek(0)
 
         st.download_button(
-            "📥 Download Synced Data (CSV)",
+            "Download Synced Data",
             data=zip_buffer.getvalue(),
             file_name=f"spotify2tidal_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
             mime="application/zip",
@@ -221,7 +217,7 @@ def render_sync_results(results: dict):
             help="Download CSVs of synced and not-found items.",
         )
 
-    if st.button("🔄 Sync Again"):
+    if st.button("Sync Again"):
         st.session_state.sync_results = None
         st.session_state.export_files = {}
         clear_logs()
