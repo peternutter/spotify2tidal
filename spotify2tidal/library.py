@@ -4,6 +4,7 @@ Library export utilities for saving Spotify library data and not-found items to 
 
 import csv
 import datetime
+import io
 from pathlib import Path
 from typing import List, Optional
 
@@ -15,321 +16,324 @@ def ensure_dir(path: Path) -> Path:
 
 
 def export_tracks(
-    tracks: List[dict], export_dir: Path, filename: str = "spotify_tracks.csv"
-):
+    tracks: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "spotify_tracks.csv",
+) -> str | Path:
     """
     Export Spotify tracks to CSV.
-
-    Args:
-        tracks: List of Spotify track objects
-        export_dir: Directory to save the CSV
-        filename: Output filename
+    If export_dir is None, returns the CSV content as a string.
+    Otherwise, writes to file and returns the path.
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "spotify_id",
+            "name",
+            "artists",
+            "album",
+            "duration_ms",
+            "isrc",
+            "exported_at",
+        ]
+    )
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    for track in tracks:
+        if not track or not track.get("id"):
+            continue
+        artists = ", ".join(a["name"] for a in track.get("artists", []))
+        album = track.get("album", {}).get("name", "")
+        isrc = track.get("external_ids", {}).get("isrc", "")
+
         writer.writerow(
             [
-                "spotify_id",
-                "name",
-                "artists",
-                "album",
-                "duration_ms",
-                "isrc",
-                "exported_at",
+                track.get("id", ""),
+                track.get("name", ""),
+                artists,
+                album,
+                track.get("duration_ms", 0),
+                isrc,
+                datetime.datetime.now().isoformat(),
             ]
         )
 
-        for track in tracks:
-            if not track or not track.get("id"):
-                continue
-            artists = ", ".join(a["name"] for a in track.get("artists", []))
-            album = track.get("album", {}).get("name", "")
-            isrc = track.get("external_ids", {}).get("isrc", "")
-
-            writer.writerow(
-                [
-                    track.get("id", ""),
-                    track.get("name", ""),
-                    artists,
-                    album,
-                    track.get("duration_ms", 0),
-                    isrc,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_albums(
-    albums: List[dict], export_dir: Path, filename: str = "spotify_albums.csv"
-):
+    albums: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "spotify_albums.csv",
+) -> str | Path:
     """
     Export Spotify albums to CSV.
-
-    Args:
-        albums: List of Spotify album objects (from saved albums endpoint)
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "spotify_id",
+            "name",
+            "artists",
+            "release_date",
+            "total_tracks",
+            "exported_at",
+        ]
+    )
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    for item in albums:
+        album = item.get("album", item)  # Handle both wrapped and unwrapped
+        if not album or not album.get("id"):
+            continue
+        artists = ", ".join(a["name"] for a in album.get("artists", []))
+
         writer.writerow(
             [
-                "spotify_id",
-                "name",
-                "artists",
-                "release_date",
-                "total_tracks",
-                "exported_at",
+                album.get("id", ""),
+                album.get("name", ""),
+                artists,
+                album.get("release_date", ""),
+                album.get("total_tracks", 0),
+                datetime.datetime.now().isoformat(),
             ]
         )
 
-        for item in albums:
-            album = item.get("album", item)  # Handle both wrapped and unwrapped
-            if not album or not album.get("id"):
-                continue
-            artists = ", ".join(a["name"] for a in album.get("artists", []))
-
-            writer.writerow(
-                [
-                    album.get("id", ""),
-                    album.get("name", ""),
-                    artists,
-                    album.get("release_date", ""),
-                    album.get("total_tracks", 0),
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_artists(
-    artists: List[dict], export_dir: Path, filename: str = "spotify_artists.csv"
-):
+    artists: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "spotify_artists.csv",
+) -> str | Path:
     """
     Export Spotify artists to CSV.
-
-    Args:
-        artists: List of Spotify artist objects
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["spotify_id", "name", "genres", "exported_at"])
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["spotify_id", "name", "genres", "exported_at"])
+    for artist in artists:
+        if not artist or not artist.get("id"):
+            continue
+        genres = ", ".join(artist.get("genres", []))
 
-        for artist in artists:
-            if not artist or not artist.get("id"):
-                continue
-            genres = ", ".join(artist.get("genres", []))
+        writer.writerow(
+            [
+                artist.get("id", ""),
+                artist.get("name", ""),
+                genres,
+                datetime.datetime.now().isoformat(),
+            ]
+        )
 
-            writer.writerow(
-                [
-                    artist.get("id", ""),
-                    artist.get("name", ""),
-                    genres,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_podcasts(
-    podcasts: List[dict], export_dir: Path, filename: str = "spotify_podcasts.csv"
-):
+    podcasts: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "spotify_podcasts.csv",
+) -> str | Path:
     """
     Export Spotify podcasts/shows to CSV.
-
-    Args:
-        podcasts: List of Spotify show objects (from saved shows endpoint)
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "spotify_id",
+            "name",
+            "publisher",
+            "description",
+            "total_episodes",
+            "spotify_url",
+            "exported_at",
+        ]
+    )
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+    for item in podcasts:
+        show = item.get("show", item)  # Handle both wrapped and unwrapped
+        if not show or not show.get("id"):
+            continue
+        url = show.get("external_urls", {}).get("spotify", "")
+        description = (show.get("description", "") or "")[
+            :200
+        ]  # Truncate long descriptions
+
         writer.writerow(
             [
-                "spotify_id",
-                "name",
-                "publisher",
-                "description",
-                "total_episodes",
-                "spotify_url",
-                "exported_at",
+                show.get("id", ""),
+                show.get("name", ""),
+                show.get("publisher", ""),
+                description,
+                show.get("total_episodes", 0),
+                url,
+                datetime.datetime.now().isoformat(),
             ]
         )
 
-        for item in podcasts:
-            show = item.get("show", item)  # Handle both wrapped and unwrapped
-            if not show or not show.get("id"):
-                continue
-            url = show.get("external_urls", {}).get("spotify", "")
-            description = (show.get("description", "") or "")[
-                :200
-            ]  # Truncate long descriptions
-
-            writer.writerow(
-                [
-                    show.get("id", ""),
-                    show.get("name", ""),
-                    show.get("publisher", ""),
-                    description,
-                    show.get("total_episodes", 0),
-                    url,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_not_found_tracks(
-    not_found: List[dict], export_dir: Path, filename: str = "not_found_tracks.csv"
-):
-    """
-    Export tracks that weren't found on Tidal.
+    not_found: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "not_found_tracks.csv",
+) -> str | Path:
+    """Export tracks that weren't found on Tidal."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "spotify_id",
+            "name",
+            "artists",
+            "album",
+            "isrc",
+            "spotify_url",
+            "exported_at",
+        ]
+    )
 
-    Args:
-        not_found: List of Spotify track objects that weren't found
-        export_dir: Directory to save the CSV
-        filename: Output filename
-    """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    for track in not_found:
+        if not track or not track.get("id"):
+            continue
+        artists = ", ".join(a["name"] for a in track.get("artists", []))
+        album = track.get("album", {}).get("name", "")
+        isrc = track.get("external_ids", {}).get("isrc", "")
+        url = track.get("external_urls", {}).get("spotify", "")
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
         writer.writerow(
             [
-                "spotify_id",
-                "name",
-                "artists",
-                "album",
-                "isrc",
-                "spotify_url",
-                "exported_at",
+                track.get("id", ""),
+                track.get("name", ""),
+                artists,
+                album,
+                isrc,
+                url,
+                datetime.datetime.now().isoformat(),
             ]
         )
 
-        for track in not_found:
-            if not track or not track.get("id"):
-                continue
-            artists = ", ".join(a["name"] for a in track.get("artists", []))
-            album = track.get("album", {}).get("name", "")
-            isrc = track.get("external_ids", {}).get("isrc", "")
-            url = track.get("external_urls", {}).get("spotify", "")
-
-            writer.writerow(
-                [
-                    track.get("id", ""),
-                    track.get("name", ""),
-                    artists,
-                    album,
-                    isrc,
-                    url,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_not_found_albums(
-    not_found: List[dict], export_dir: Path, filename: str = "not_found_albums.csv"
-):
-    """
-    Export albums that weren't found on Tidal.
+    not_found: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "not_found_albums.csv",
+) -> str | Path:
+    """Export albums that weren't found on Tidal."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "spotify_id",
+            "name",
+            "artists",
+            "release_date",
+            "spotify_url",
+            "exported_at",
+        ]
+    )
 
-    Args:
-        not_found: List of Spotify album objects that weren't found
-        export_dir: Directory to save the CSV
-        filename: Output filename
-    """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    for item in not_found:
+        album = item.get("album", item)
+        if not album or not album.get("id"):
+            continue
+        artists = ", ".join(a["name"] for a in album.get("artists", []))
+        url = album.get("external_urls", {}).get("spotify", "")
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
         writer.writerow(
             [
-                "spotify_id",
-                "name",
-                "artists",
-                "release_date",
-                "spotify_url",
-                "exported_at",
+                album.get("id", ""),
+                album.get("name", ""),
+                artists,
+                album.get("release_date", ""),
+                url,
+                datetime.datetime.now().isoformat(),
             ]
         )
 
-        for item in not_found:
-            album = item.get("album", item)
-            if not album or not album.get("id"):
-                continue
-            artists = ", ".join(a["name"] for a in album.get("artists", []))
-            url = album.get("external_urls", {}).get("spotify", "")
-
-            writer.writerow(
-                [
-                    album.get("id", ""),
-                    album.get("name", ""),
-                    artists,
-                    album.get("release_date", ""),
-                    url,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_not_found_artists(
-    not_found: List[dict], export_dir: Path, filename: str = "not_found_artists.csv"
-):
-    """
-    Export artists that weren't found on Tidal.
+    not_found: List[dict],
+    export_dir: Optional[Path] = None,
+    filename: str = "not_found_artists.csv",
+) -> str | Path:
+    """Export artists that weren't found on Tidal."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["spotify_id", "name", "spotify_url", "exported_at"])
 
-    Args:
-        not_found: List of Spotify artist objects that weren't found
-        export_dir: Directory to save the CSV
-        filename: Output filename
-    """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    for artist in not_found:
+        if not artist or not artist.get("id"):
+            continue
+        url = artist.get("external_urls", {}).get("spotify", "")
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["spotify_id", "name", "spotify_url", "exported_at"])
+        writer.writerow(
+            [
+                artist.get("id", ""),
+                artist.get("name", ""),
+                url,
+                datetime.datetime.now().isoformat(),
+            ]
+        )
 
-        for artist in not_found:
-            if not artist or not artist.get("id"):
-                continue
-            url = artist.get("external_urls", {}).get("spotify", "")
-
-            writer.writerow(
-                [
-                    artist.get("id", ""),
-                    artist.get("name", ""),
-                    url,
-                    datetime.datetime.now().isoformat(),
-                ]
-            )
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 # ============================================================================
@@ -338,134 +342,137 @@ def export_not_found_artists(
 
 
 def export_tidal_tracks(
-    tracks: list, export_dir: Path, filename: str = "tidal_tracks.csv"
-):
+    tracks: list,
+    export_dir: Optional[Path] = None,
+    filename: str = "tidal_tracks.csv",
+) -> str | Path:
     """
     Export Tidal favorite tracks to CSV.
-
-    Args:
-        tracks: List of tidalapi.Track objects
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "tidal_id",
+            "name",
+            "artists",
+            "album",
+            "duration_seconds",
+            "isrc",
+            "exported_at",
+        ]
+    )
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "tidal_id",
-                "name",
-                "artists",
-                "album",
-                "duration_seconds",
-                "isrc",
-                "exported_at",
-            ]
-        )
+    for track in tracks:
+        if not track:
+            continue
+        try:
+            artists = ", ".join(a.name for a in (track.artists or []))
+            album_name = track.album.name if track.album else ""
+            isrc = getattr(track, "isrc", "") or ""
 
-        for track in tracks:
-            if not track:
-                continue
-            try:
-                artists = ", ".join(a.name for a in (track.artists or []))
-                album_name = track.album.name if track.album else ""
-                isrc = getattr(track, "isrc", "") or ""
+            writer.writerow(
+                [
+                    track.id,
+                    track.name or "",
+                    artists,
+                    album_name,
+                    track.duration or 0,
+                    isrc,
+                    datetime.datetime.now().isoformat(),
+                ]
+            )
+        except Exception:
+            continue
 
-                writer.writerow(
-                    [
-                        track.id,
-                        track.name or "",
-                        artists,
-                        album_name,
-                        track.duration or 0,
-                        isrc,
-                        datetime.datetime.now().isoformat(),
-                    ]
-                )
-            except Exception:
-                continue
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_tidal_albums(
-    albums: list, export_dir: Path, filename: str = "tidal_albums.csv"
-):
+    albums: list,
+    export_dir: Optional[Path] = None,
+    filename: str = "tidal_albums.csv",
+) -> str | Path:
     """
     Export Tidal favorite albums to CSV.
-
-    Args:
-        albums: List of tidalapi.Album objects
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        ["tidal_id", "name", "artists", "release_date", "num_tracks", "exported_at"]
+    )
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["tidal_id", "name", "artists", "release_date", "num_tracks", "exported_at"]
-        )
+    for album in albums:
+        if not album:
+            continue
+        try:
+            artists = ", ".join(a.name for a in (album.artists or []))
+            release_date = str(album.release_date) if album.release_date else ""
 
-        for album in albums:
-            if not album:
-                continue
-            try:
-                artists = ", ".join(a.name for a in (album.artists or []))
-                release_date = str(album.release_date) if album.release_date else ""
+            writer.writerow(
+                [
+                    album.id,
+                    album.name or "",
+                    artists,
+                    release_date,
+                    album.num_tracks or 0,
+                    datetime.datetime.now().isoformat(),
+                ]
+            )
+        except Exception:
+            continue
 
-                writer.writerow(
-                    [
-                        album.id,
-                        album.name or "",
-                        artists,
-                        release_date,
-                        album.num_tracks or 0,
-                        datetime.datetime.now().isoformat(),
-                    ]
-                )
-            except Exception:
-                continue
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 def export_tidal_artists(
-    artists: list, export_dir: Path, filename: str = "tidal_artists.csv"
-):
+    artists: list,
+    export_dir: Optional[Path] = None,
+    filename: str = "tidal_artists.csv",
+) -> str | Path:
     """
     Export Tidal favorite artists to CSV.
-
-    Args:
-        artists: List of tidalapi.Artist objects
-        export_dir: Directory to save the CSV
-        filename: Output filename
     """
-    ensure_dir(export_dir)
-    filepath = export_dir / filename
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["tidal_id", "name", "exported_at"])
 
-    with open(filepath, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["tidal_id", "name", "exported_at"])
+    for artist in artists:
+        if not artist:
+            continue
+        try:
+            writer.writerow(
+                [
+                    artist.id,
+                    artist.name or "",
+                    datetime.datetime.now().isoformat(),
+                ]
+            )
+        except Exception:
+            continue
 
-        for artist in artists:
-            if not artist:
-                continue
-            try:
-                writer.writerow(
-                    [
-                        artist.id,
-                        artist.name or "",
-                        datetime.datetime.now().isoformat(),
-                    ]
-                )
-            except Exception:
-                continue
-
-    return filepath
+    content = output.getvalue()
+    if export_dir:
+        ensure_dir(export_dir)
+        filepath = export_dir / filename
+        with open(filepath, "w", newline="", encoding="utf-8") as f:
+            f.write(content)
+        return filepath
+    return content
 
 
 class LibraryExporter:
@@ -475,7 +482,10 @@ class LibraryExporter:
     """
 
     def __init__(self, export_dir: Optional[Path] = None):
-        self.export_dir = Path(export_dir) if export_dir else Path("./library")
+        if export_dir:
+            self.export_dir = Path(export_dir)
+        else:
+            self.export_dir = None  # None indicates in-memory mode
 
         # Collections to track during sync
         self.tracks: List[dict] = []
@@ -518,36 +528,40 @@ class LibraryExporter:
         """
         Export all collected data to CSV files.
 
-        Returns dict with paths to created files.
+        Returns dict with paths to created files (or file contents if in memory).
         """
         results = {}
+        # Mapping of data list -> (export_func, filename_key, default_filename)
+        exports = [
+            (self.tracks, export_tracks, "tracks", "spotify_tracks.csv"),
+            (self.albums, export_albums, "albums", "spotify_albums.csv"),
+            (self.artists, export_artists, "artists", "spotify_artists.csv"),
+            (self.podcasts, export_podcasts, "podcasts", "spotify_podcasts.csv"),
+            (
+                self.not_found_tracks,
+                export_not_found_tracks,
+                "not_found_tracks",
+                "not_found_tracks.csv",
+            ),
+            (
+                self.not_found_albums,
+                export_not_found_albums,
+                "not_found_albums",
+                "not_found_albums.csv",
+            ),
+            (
+                self.not_found_artists,
+                export_not_found_artists,
+                "not_found_artists",
+                "not_found_artists.csv",
+            ),
+        ]
 
-        if self.tracks:
-            results["tracks"] = export_tracks(self.tracks, self.export_dir)
-
-        if self.albums:
-            results["albums"] = export_albums(self.albums, self.export_dir)
-
-        if self.artists:
-            results["artists"] = export_artists(self.artists, self.export_dir)
-
-        if self.podcasts:
-            results["podcasts"] = export_podcasts(self.podcasts, self.export_dir)
-
-        if self.not_found_tracks:
-            results["not_found_tracks"] = export_not_found_tracks(
-                self.not_found_tracks, self.export_dir
-            )
-
-        if self.not_found_albums:
-            results["not_found_albums"] = export_not_found_albums(
-                self.not_found_albums, self.export_dir
-            )
-
-        if self.not_found_artists:
-            results["not_found_artists"] = export_not_found_artists(
-                self.not_found_artists, self.export_dir
-            )
+        for data, func, key, filename in exports:
+            if data:
+                # If export_dir is None, func returns string content
+                # If export_dir is set, func writes file and returns Path
+                results[key] = func(data, self.export_dir, filename)
 
         return results
 

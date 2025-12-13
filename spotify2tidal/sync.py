@@ -361,10 +361,11 @@ class SyncEngine:
         rate_limit: float = 10,
         library_dir: str = "./library",
         logger: Optional["SyncLogger"] = None,
+        cache: Optional[MatchCache] = None,
     ):
         self.spotify = spotify
         self.tidal = tidal
-        self.cache = MatchCache()
+        self.cache = cache or MatchCache()
         self.rate_limiter = RateLimiter(max_concurrent, rate_limit)
         self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
         self.library = LibraryExporter(library_dir)

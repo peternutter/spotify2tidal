@@ -218,3 +218,60 @@ class MatchCache:
                 "cached_artist_matches": artist_matches,
                 "cached_failures": failures,
             }
+
+
+class MemoryCache:
+    """
+    In-memory cache implementation that mimics MatchCache interface.
+    Used for webapp to avoid filesystem locking issues and shared state.
+    """
+
+    def __init__(self):
+        self._track_matches = {}
+        self._album_matches = {}
+        self._artist_matches = {}
+        self._failures = {}
+
+    def get_track_match(self, spotify_id: str) -> Optional[int]:
+        return self._track_matches.get(spotify_id)
+
+    def cache_track_match(self, spotify_id: str, tidal_id: int):
+        self._track_matches[spotify_id] = tidal_id
+
+    def get_album_match(self, spotify_id: str) -> Optional[int]:
+        return self._album_matches.get(spotify_id)
+
+    def cache_album_match(self, spotify_id: str, tidal_id: int):
+        self._album_matches[spotify_id] = tidal_id
+
+    def get_artist_match(self, spotify_id: str) -> Optional[int]:
+        return self._artist_matches.get(spotify_id)
+
+    def cache_artist_match(self, spotify_id: str, tidal_id: int):
+        self._artist_matches[spotify_id] = tidal_id
+
+    def has_recent_failure(self, spotify_id: str, days: int = 7) -> bool:
+        # In memory cache doesn't persist failures across sessions for "days",
+        # but we can respect failures *within* the session.
+        return spotify_id in self._failures
+
+    def cache_failure(self, spotify_id: str):
+        self._failures[spotify_id] = datetime.datetime.now()
+
+    def remove_failure(self, spotify_id: str):
+        if spotify_id in self._failures:
+            del self._failures[spotify_id]
+
+    def clear_cache(self):
+        self._track_matches.clear()
+        self._album_matches.clear()
+        self._artist_matches.clear()
+        self._failures.clear()
+
+    def get_stats(self) -> dict:
+        return {
+            "cached_track_matches": len(self._track_matches),
+            "cached_album_matches": len(self._album_matches),
+            "cached_artist_matches": len(self._artist_matches),
+            "cached_failures": len(self._failures),
+        }
