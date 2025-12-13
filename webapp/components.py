@@ -3,6 +3,7 @@ Reusable UI components for the web application.
 """
 
 import io
+import json
 import zipfile
 from datetime import datetime
 
@@ -13,7 +14,92 @@ from .auth import (
     connect_spotify,
     start_tidal_login,
 )
-from .state import clear_logs
+from .state import add_log, clear_logs
+
+
+def render_file_upload():
+    """
+    Render file upload UI for restoring a previous export.
+    Users can upload a .zip file from a previous sync to pre-load cache data.
+    """
+    with st.expander("📦 Upload Previous Export (Optional)", expanded=False):
+        st.caption(
+            "Upload a .zip file from a previous sync to restore your match cache. "
+            "This speeds up syncing by reusing previous track matches."
+        )
+
+        uploaded_file = st.file_uploader(
+            "Choose a .zip file",
+            type=["zip"],
+            key="upload_zip",
+            help="Upload a spotify2tidal_export_*.zip file from a previous sync",
+        )
+
+        if uploaded_file is not None:
+            try:
+                # Read the zip file
+                zip_buffer = io.BytesIO(uploaded_file.read())
+                with zipfile.ZipFile(zip_buffer, "r") as zf:
+                    file_list = zf.namelist()
+                    st.success(f"✅ Loaded {len(file_list)} files from archive")
+
+                    # Show contents
+                    with st.expander("📄 Archive Contents", expanded=False):
+                        for filename in file_list:
+                            st.text(f"  • {filename}")
+
+                    # Parse and load data into session state
+                    loaded_data = {}
+                    for filename in file_list:
+                        if filename.endswith(".csv"):
+                            content = zf.read(filename).decode("utf-8")
+                            loaded_data[filename] = content
+                        elif filename.endswith(".json"):
+                            content = zf.read(filename).decode("utf-8")
+                            loaded_data[filename] = json.loads(content)
+
+                    # Store in session state for sync_runner to use
+                    st.session_state.uploaded_export = loaded_data
+
+                    # Load cache data if present (cache.json)
+                    if "cache.json" in loaded_data:
+                        cache_data = loaded_data["cache.json"]
+                        _restore_cache_from_json(cache_data)
+                        add_log("info", "Restored match cache from uploaded file")
+                        st.info(
+                            f"🔄 Restored cache: "
+                            f"{len(cache_data.get('tracks', {}))} tracks, "
+                            f"{len(cache_data.get('albums', {}))} albums, "
+                            f"{len(cache_data.get('artists', {}))} artists"
+                        )
+
+            except zipfile.BadZipFile:
+                st.error("❌ Invalid zip file. Please upload a valid .zip archive.")
+            except Exception as e:
+                st.error(f"❌ Error reading file: {e}")
+
+
+def _restore_cache_from_json(cache_data: dict):
+    """Restore the in-memory cache from JSON data."""
+    from spotify2tidal.cache import MemoryCache
+
+    # Initialize cache if not present
+    if "memory_cache" not in st.session_state:
+        st.session_state.memory_cache = MemoryCache()
+
+    cache = st.session_state.memory_cache
+
+    # Restore track matches
+    for spotify_id, tidal_id in cache_data.get("tracks", {}).items():
+        cache.cache_track_match(spotify_id, int(tidal_id))
+
+    # Restore album matches
+    for spotify_id, tidal_id in cache_data.get("albums", {}).items():
+        cache.cache_album_match(spotify_id, int(tidal_id))
+
+    # Restore artist matches
+    for spotify_id, tidal_id in cache_data.get("artists", {}).items():
+        cache.cache_artist_match(spotify_id, int(tidal_id))
 
 
 def render_activity_log():
@@ -82,10 +168,24 @@ def render_spotify_connection():
         )
     elif st.session_state.get("spotify_auth_url"):
         st.info("Click below to log in to Spotify:")
-        st.link_button(
-            "🎵 Log in to Spotify",
-            st.session_state.spotify_auth_url,
-            use_container_width=True,
+        # Use simple HTML anchor with target="_self" to force same-tab navigation
+        # Standard Streamlit links open in new tabs by default
+        auth_url = st.session_state.spotify_auth_url
+        st.markdown(
+            f"""
+            <a href="{auth_url}" target="_self" style="
+                display: block;
+                width: 100%;
+                padding: 0.75rem 1rem;
+                background: #1DB954;
+                color: white;
+                text-align: center;
+                border-radius: 0.5rem;
+                text-decoration: none;
+                font-weight: 600;
+            ">🎵 Log in to Spotify</a>
+            """,
+            unsafe_allow_html=True,
         )
         st.caption("You'll be redirected back here after login.")
     else:

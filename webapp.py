@@ -15,6 +15,7 @@ from webapp import CUSTOM_CSS, handle_spotify_callback, init_session_state, is_r
 from webapp.components import (
     render_activity_log,
     render_connection_status,
+    render_file_upload,
     render_performance_settings,
     render_spotify_connection,
     render_sync_results,
@@ -85,6 +86,9 @@ def render_main():
             unsafe_allow_html=True,
         )
         return
+
+    # File upload for restoring previous export
+    render_file_upload()
 
     # Sync options
     st.subheader("What would you like to sync?")

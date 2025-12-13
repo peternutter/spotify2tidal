@@ -98,11 +98,32 @@ async def run_sync(
             results["podcasts"] = {"exported": count}
             update_progress("Podcasts exported ✓", done=True)
 
-        # Export library data (returns dict of filename -> content string)
+        # Export library data (returns dict with 'files' and 'stats')
         update_progress("Exporting library data...")
         if results:
             export_result = engine.export_library()
-            st.session_state.export_files = export_result
+            # export_library returns {"files": {filename: content}, "stats": {...}}
+            # We want just the files dict for the zip
+            export_files = {}
+            if export_result.get("files"):
+                for key, content in export_result["files"].items():
+                    # Use the key as filename (it might be a Path in file mode,
+                    # or just a string key in memory mode)
+                    filename = f"{key}.csv" if not str(key).endswith(".csv") else key
+                    export_files[str(filename)] = content
+
+            # Also export cache data for future restore
+            cache_export = {
+                "tracks": cache._track_matches,
+                "albums": cache._album_matches,
+                "artists": cache._artist_matches,
+            }
+            import json
+
+            export_files["cache.json"] = json.dumps(cache_export, indent=2)
+            add_log("info", f"Cache saved: {cache.get_stats()}")
+
+            st.session_state.export_files = export_files
 
         status_placeholder.success("✅ Sync complete!")
         progress_placeholder.progress(1.0)
