@@ -104,47 +104,111 @@ def init_session_state():
 def get_spotify_credentials():
     """Get Spotify credentials from secrets or environment."""
     try:
+        client_id = st.secrets.get("SPOTIFY_CLIENT_ID")
+        client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET")
+        redirect_uri = st.secrets.get("SPOTIFY_REDIRECT_URI")
+
+        if not client_id or not client_secret:
+            st.error(
+                "❌ Missing Spotify credentials. "
+                "Please configure SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET "
+                "in Streamlit secrets."
+            )
+            return None
+
+        if not redirect_uri:
+            st.error(
+                "❌ Missing SPOTIFY_REDIRECT_URI in Streamlit secrets. "
+                "Set it to your deployed URL (e.g., https://spotify2tidal.streamlit.app/)"
+            )
+            return None
+
         return {
-            "client_id": st.secrets["SPOTIFY_CLIENT_ID"],
-            "client_secret": st.secrets["SPOTIFY_CLIENT_SECRET"],
-            "redirect_uri": st.secrets.get(
-                "SPOTIFY_REDIRECT_URI",
-                st.secrets.get("SPOTIFY_CLIENT_ID", "http://localhost:8501/"),
-            ),
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
         }
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Failed to load Spotify credentials: {e}")
         return None
 
 
-def connect_spotify():
-    """Connect to Spotify using OAuth."""
-    from spotify2tidal.auth import open_spotify_session
+def get_spotify_auth_manager():
+    """Get a SpotifyOAuth manager for web flow."""
+    from spotipy.oauth2 import SpotifyOAuth
 
     creds = get_spotify_credentials()
     if not creds:
-        st.error(
-            "Spotify credentials not configured. Please add them to Streamlit secrets."
-        )
-        return False
+        return None
 
-    try:
-        config = {
-            "client_id": creds["client_id"],
-            "client_secret": creds["client_secret"],
-            "redirect_uri": creds["redirect_uri"],
-            "open_browser": True,
-        }
-        spotify = open_spotify_session(config)
+    # Use cache_handler=None to avoid file-based caching issues on Streamlit Cloud
+    return SpotifyOAuth(
+        client_id=creds["client_id"],
+        client_secret=creds["client_secret"],
+        redirect_uri=creds["redirect_uri"],
+        scope=(
+            "user-library-read "
+            "playlist-read-private "
+            "user-follow-read "
+            "playlist-modify-private "
+            "playlist-modify-public "
+            "user-read-playback-position"
+        ),
+        open_browser=False,  # Don't open browser on server
+        cache_handler=None,  # Don't use file cache
+    )
 
-        # Test the connection
-        user = spotify.current_user()
-        st.session_state.spotify_client = spotify
-        st.session_state.spotify_connected = True
-        st.session_state.spotify_user = user["display_name"] or user["id"]
+
+def handle_spotify_callback():
+    """Check for and handle Spotify OAuth callback in URL parameters."""
+    import spotipy
+
+    query_params = st.query_params
+    code = query_params.get("code")
+
+    if code and not st.session_state.spotify_connected:
+        auth_manager = get_spotify_auth_manager()
+        if auth_manager:
+            try:
+                # Exchange code for access token
+                token_info = auth_manager.get_access_token(code, as_dict=True)
+
+                # Create Spotify client with token
+                spotify = spotipy.Spotify(auth=token_info["access_token"])
+
+                # Test connection and get user info
+                user = spotify.current_user()
+                st.session_state.spotify_client = spotify
+                st.session_state.spotify_token_info = token_info
+                st.session_state.spotify_connected = True
+                st.session_state.spotify_user = user["display_name"] or user["id"]
+
+                # Clear the code from URL to avoid re-processing
+                st.query_params.clear()
+                return True
+            except Exception as e:
+                st.error(f"Failed to complete Spotify login: {e}")
+                st.query_params.clear()
+    return False
+
+
+def get_spotify_auth_url():
+    """Get the Spotify authorization URL for the user to click."""
+    auth_manager = get_spotify_auth_manager()
+    if auth_manager:
+        return auth_manager.get_authorize_url()
+    return None
+
+
+def connect_spotify():
+    """Connect to Spotify using OAuth - web flow version."""
+    # For web deployment, we just show the auth URL
+    # The actual connection happens in handle_spotify_callback() after redirect
+    auth_url = get_spotify_auth_url()
+    if auth_url:
+        st.session_state.spotify_auth_url = auth_url
         return True
-    except Exception as e:
-        st.error(f"Failed to connect to Spotify: {e}")
-        return False
+    return False
 
 
 def start_tidal_login():
@@ -284,13 +348,21 @@ def render_sidebar():
             st.success(
                 f"✓ Connected as {st.session_state.get('spotify_user', 'Unknown')}"
             )
+        elif st.session_state.get("spotify_auth_url"):
+            # Show link to Spotify login
+            st.info("Click the button below to log in to Spotify:")
+            st.link_button(
+                "🎵 Log in to Spotify",
+                st.session_state.spotify_auth_url,
+                use_container_width=True,
+            )
+            st.caption("You'll be redirected back here after login.")
         else:
             with st.container():
                 st.markdown('<div class="spotify-btn">', unsafe_allow_html=True)
                 if st.button("🎵 Connect Spotify", key="spotify_connect"):
-                    with st.spinner("Connecting to Spotify..."):
-                        connect_spotify()
-                        st.rerun()
+                    connect_spotify()
+                    st.rerun()
                 st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
@@ -529,6 +601,10 @@ def render_main():
 def main():
     """Main application entry point."""
     init_session_state()
+
+    # Handle OAuth callback from Spotify (before rendering UI)
+    handle_spotify_callback()
+
     render_sidebar()
     render_main()
 
