@@ -39,7 +39,7 @@ Examples:
   spotify2tidal --favorites         # Sync liked/saved tracks
   spotify2tidal --albums            # Sync saved albums
   spotify2tidal --artists           # Sync followed artists
-  spotify2tidal --podcasts          # Export podcasts to CSV (Tidal doesn't support podcasts)
+  spotify2tidal --podcasts          # Export podcasts to CSV
   spotify2tidal --all               # Sync everything + export podcasts
   spotify2tidal --playlist <id>     # Sync specific playlist
 """,
@@ -78,7 +78,7 @@ Examples:
         "--all",
         action="store_true",
         dest="sync_all",
-        help="Sync everything (playlists, favorites, albums, artists) + export podcasts",
+        help="Sync everything (playlists, favorites, albums, artists)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose output"

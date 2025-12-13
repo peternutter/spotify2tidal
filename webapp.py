@@ -171,10 +171,16 @@ def handle_spotify_callback():
         if auth_manager:
             try:
                 # Exchange code for access token
-                token_info = auth_manager.get_access_token(code, as_dict=True)
+                token_info = auth_manager.get_access_token(code)
+
+                # Handle both dict (current) and string (future) responses
+                if isinstance(token_info, dict):
+                    access_token = token_info["access_token"]
+                else:
+                    access_token = token_info
 
                 # Create Spotify client with token
-                spotify = spotipy.Spotify(auth=token_info["access_token"])
+                spotify = spotipy.Spotify(auth=access_token)
 
                 # Test connection and get user info
                 user = spotify.current_user()
@@ -383,7 +389,8 @@ def render_sidebar():
                     st.rerun()
                 else:
                     st.warning(
-                        "Login not detected yet. Please complete the login and try again."
+                        "Login not detected yet. "
+                        "Please complete the login and try again."
                     )
         else:
             with st.container():
@@ -419,7 +426,7 @@ def render_sidebar():
             min_value=1,
             max_value=50,
             value=st.session_state.get("max_concurrent", 10),
-            help="Number of parallel API requests. Higher = faster, but may hit rate limits.",
+            help="Parallel API requests. Higher = faster but may hit rate limits.",
         )
         st.session_state.rate_limit = st.slider(
             "Requests per second",

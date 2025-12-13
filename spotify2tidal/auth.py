@@ -45,7 +45,8 @@ def open_spotify_session(config: dict) -> spotipy.Spotify:
     if not client_id or not client_secret:
         raise ValueError(
             "Spotify client_id and client_secret are required. "
-            "Set them in config.yml or via SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET env vars. "
+            "Set them in config.yml or via SPOTIFY_CLIENT_ID and "
+            "SPOTIFY_CLIENT_SECRET env vars. "
             "Get them from https://developer.spotify.com/dashboard"
         )
 

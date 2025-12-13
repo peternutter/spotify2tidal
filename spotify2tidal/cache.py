@@ -152,7 +152,8 @@ class MatchCache:
         with sqlite3.connect(self.db_path) as conn:
             # Check existing failure
             cursor = conn.execute(
-                "SELECT created_at, retry_after FROM search_failures WHERE spotify_id = ?",
+                "SELECT created_at, retry_after FROM search_failures "
+                "WHERE spotify_id = ?",
                 (spotify_id,),
             )
             row = cursor.fetchone()

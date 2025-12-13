@@ -381,7 +381,8 @@ class SyncEngine:
             )
             playlist_name = self.spotify.playlist(spotify_playlist_id)["name"]
             logger.info(
-                f"Found {len(spotify_tracks)} tracks in Spotify playlist '{playlist_name}'"
+                f"Found {len(spotify_tracks)} tracks in Spotify playlist "
+                f"'{playlist_name}'"
             )
 
             if not spotify_tracks:
@@ -419,9 +420,9 @@ class SyncEngine:
                 if tidal_id:
                     tidal_track_ids.append(tidal_id)
                 else:
-                    not_found.append(
-                        f"{spotify_track['artists'][0]['name']} - {spotify_track['name']}"
-                    )
+                    artist = spotify_track["artists"][0]["name"]
+                    name = spotify_track["name"]
+                    not_found.append(f"{artist} - {name}")
                     not_found_tracks.append(spotify_track)
 
             # Record not-found tracks for export
@@ -575,7 +576,7 @@ class SyncEngine:
                     logger.warning(f"Album not found: {artist_name} - {album_name}")
 
             logger.info(
-                f"Albums: {added} added, {skipped} already existed, {not_found} not found"
+                f"Albums: {added} added, {skipped} existed, {not_found} not found"
             )
             return added, not_found
 
@@ -628,7 +629,7 @@ class SyncEngine:
                     logger.warning(f"Artist not found: {artist['name']}")
 
             logger.info(
-                f"Artists: {added} added, {skipped} already existed, {not_found} not found"
+                f"Artists: {added} added, {skipped} existed, {not_found} not found"
             )
             return added, not_found
 
@@ -851,7 +852,7 @@ class SyncEngine:
                 all_ids.add(artist.id)
 
             print(
-                f"\rFetching existing Tidal artist favorites: {len(all_ids)} artists...",
+                f"\rFetching Tidal artist favorites: {len(all_ids)} artists...",
                 end="",
                 flush=True,
             )

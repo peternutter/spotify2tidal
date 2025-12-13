@@ -159,7 +159,15 @@ class Spotify:
         https://developer.spotify.com/documentation/general/guides/authorization-guide/
         https://spotipy.readthedocs.io/en/latest/#authorized-requests
         """
-        scope = "user-library-read playlist-read-private user-follow-read playlist-modify-private playlist-modify-public"
+        scope = " ".join(
+            [
+                "user-library-read",
+                "playlist-read-private",
+                "user-follow-read",
+                "playlist-modify-private",
+                "playlist-modify-public",
+            ]
+        )
 
         auth_manager = SpotifyOAuth(
             client_id=self._client_id,
