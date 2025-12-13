@@ -81,11 +81,11 @@ def render_file_upload():
 
 def _restore_cache_from_json(cache_data: dict):
     """Restore the in-memory cache from JSON data."""
-    from spotify2tidal.cache import MemoryCache
+    from spotify2tidal.cache import MatchCache
 
     # Initialize cache if not present
     if "memory_cache" not in st.session_state:
-        st.session_state.memory_cache = MemoryCache()
+        st.session_state.memory_cache = MatchCache()  # No file = in-memory only
 
     cache = st.session_state.memory_cache
 
@@ -168,26 +168,14 @@ def render_spotify_connection():
         )
     elif st.session_state.get("spotify_auth_url"):
         st.info("Click below to log in to Spotify:")
-        # Use simple HTML anchor with target="_self" to force same-tab navigation
-        # Standard Streamlit links open in new tabs by default
-        auth_url = st.session_state.spotify_auth_url
-        st.markdown(
-            f"""
-            <a href="{auth_url}" target="_self" style="
-                display: block;
-                width: 100%;
-                padding: 0.75rem 1rem;
-                background: #1DB954;
-                color: white;
-                text-align: center;
-                border-radius: 0.5rem;
-                text-decoration: none;
-                font-weight: 600;
-            ">🎵 Log in to Spotify</a>
-            """,
-            unsafe_allow_html=True,
+        # Use Streamlit's native link_button for reliable cross-browser behavior
+        # Opens in new tab, which is standard OAuth UX that works everywhere
+        st.link_button(
+            "🎵 Log in to Spotify",
+            st.session_state.spotify_auth_url,
+            use_container_width=True,
         )
-        st.caption("You'll be redirected back here after login.")
+        st.caption("Complete login in the new tab, then return here.")
     else:
         if st.button(
             "Connect Spotify", key="spotify_connect", use_container_width=True

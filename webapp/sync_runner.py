@@ -5,7 +5,7 @@ Handles the async sync operation with progress updates.
 
 import streamlit as st
 
-from spotify2tidal.cache import MemoryCache
+from spotify2tidal.cache import MatchCache
 from spotify2tidal.logging_utils import SyncLogger
 from spotify2tidal.sync import SyncEngine
 
@@ -31,7 +31,7 @@ async def run_sync(
 
     # Use in-memory cache for web session (persists across sync runs in same session)
     if "memory_cache" not in st.session_state:
-        st.session_state.memory_cache = MemoryCache()
+        st.session_state.memory_cache = MatchCache()  # No file = in-memory only
 
     cache = st.session_state.memory_cache
 
@@ -113,14 +113,9 @@ async def run_sync(
                     export_files[str(filename)] = content
 
             # Also export cache data for future restore
-            cache_export = {
-                "tracks": cache._track_matches,
-                "albums": cache._album_matches,
-                "artists": cache._artist_matches,
-            }
             import json
 
-            export_files["cache.json"] = json.dumps(cache_export, indent=2)
+            export_files["cache.json"] = json.dumps(cache.to_dict(), indent=2)
             add_log("info", f"Cache saved: {cache.get_stats()}")
 
             st.session_state.export_files = export_files

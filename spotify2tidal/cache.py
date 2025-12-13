@@ -1,147 +1,104 @@
 """
 Caching layer for track matches and search failures.
-Uses SQLite for persistence across runs.
+Uses JSON for persistence across runs (optional).
 """
 
 import datetime
-import sqlite3
+import json
 from pathlib import Path
 from typing import Optional
 
 
 class MatchCache:
     """
-    SQLite-based cache for track/album matches and search failures.
-    Persists between runs to avoid redundant API calls.
+    Cache for track/album/artist matches and search failures.
+    Uses JSON file for persistence (optional), dict for runtime storage.
+
+    For CLI: Pass cache_file to persist between runs.
+    For webapp: Use without cache_file for in-memory only (no disk writes).
     """
 
-    def __init__(self, db_path: Optional[str] = None):
-        if db_path is None:
-            db_path = Path.home() / ".spotify2tidal_cache.db"
-        self.db_path = Path(db_path)
-        self._init_db()
+    def __init__(self, cache_file: Optional[str] = None):
+        self._cache_file = Path(cache_file) if cache_file else None
+        self._track_matches: dict[str, int] = {}
+        self._album_matches: dict[str, int] = {}
+        self._artist_matches: dict[str, int] = {}
+        self._failures: dict[str, str] = {}  # spotify_id -> retry_after ISO string
 
-    def _init_db(self):
-        """Initialize the database schema."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS track_matches (
-                    spotify_id TEXT PRIMARY KEY,
-                    tidal_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS album_matches (
-                    spotify_id TEXT PRIMARY KEY,
-                    tidal_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS artist_matches (
-                    spotify_id TEXT PRIMARY KEY,
-                    tidal_id INTEGER,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS search_failures (
-                    spotify_id TEXT PRIMARY KEY,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    retry_after TIMESTAMP
-                )
-            """)
-            conn.commit()
+        # Load from file if it exists
+        if self._cache_file and self._cache_file.exists():
+            self._load_from_file()
+
+    def _load_from_file(self):
+        """Load cache state from JSON file."""
+        if not self._cache_file:
+            return
+
+        try:
+            with open(self._cache_file) as f:
+                data = json.load(f)
+
+            self._track_matches = data.get("track_matches", {})
+            self._album_matches = data.get("album_matches", {})
+            self._artist_matches = data.get("artist_matches", {})
+            self._failures = data.get("failures", {})
+        except (json.JSONDecodeError, OSError):
+            # Invalid or unreadable file, start fresh
+            pass
+
+    def save_to_file(self, path: Optional[str] = None):
+        """Save cache state to JSON file."""
+        target = Path(path) if path else self._cache_file
+        if not target:
+            return
+
+        data = {
+            "track_matches": self._track_matches,
+            "album_matches": self._album_matches,
+            "artist_matches": self._artist_matches,
+            "failures": self._failures,
+        }
+
+        with open(target, "w") as f:
+            json.dump(data, f, indent=2)
 
     def get_track_match(self, spotify_id: str) -> Optional[int]:
-        """
-        Get cached Tidal track ID for a Spotify track.
-        Returns None if not cached, or the cached ID (which may be 0 for failures).
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT tidal_id FROM track_matches WHERE spotify_id = ?", (spotify_id,)
-            )
-            row = cursor.fetchone()
-            return row[0] if row else None
+        """Get cached Tidal track ID for a Spotify track."""
+        return self._track_matches.get(spotify_id)
 
     def cache_track_match(self, spotify_id: str, tidal_id: int):
         """Cache a successful track match."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO track_matches (spotify_id, tidal_id)
-                VALUES (?, ?)
-            """,
-                (spotify_id, tidal_id),
-            )
-            conn.commit()
+        self._track_matches[spotify_id] = tidal_id
+        self._auto_save()
 
     def get_album_match(self, spotify_id: str) -> Optional[int]:
-        """
-        Get cached Tidal album ID for a Spotify album.
-        Returns None if not cached.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT tidal_id FROM album_matches WHERE spotify_id = ?", (spotify_id,)
-            )
-            row = cursor.fetchone()
-            return row[0] if row else None
+        """Get cached Tidal album ID for a Spotify album."""
+        return self._album_matches.get(spotify_id)
 
     def cache_album_match(self, spotify_id: str, tidal_id: int):
         """Cache a successful album match."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO album_matches (spotify_id, tidal_id)
-                VALUES (?, ?)
-            """,
-                (spotify_id, tidal_id),
-            )
-            conn.commit()
+        self._album_matches[spotify_id] = tidal_id
+        self._auto_save()
 
     def get_artist_match(self, spotify_id: str) -> Optional[int]:
-        """
-        Get cached Tidal artist ID for a Spotify artist.
-        Returns None if not cached.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT tidal_id FROM artist_matches WHERE spotify_id = ?",
-                (spotify_id,),
-            )
-            row = cursor.fetchone()
-            return row[0] if row else None
+        """Get cached Tidal artist ID for a Spotify artist."""
+        return self._artist_matches.get(spotify_id)
 
     def cache_artist_match(self, spotify_id: str, tidal_id: int):
         """Cache a successful artist match."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO artist_matches (spotify_id, tidal_id)
-                VALUES (?, ?)
-            """,
-                (spotify_id, tidal_id),
-            )
-            conn.commit()
+        self._artist_matches[spotify_id] = tidal_id
+        self._auto_save()
 
     def has_recent_failure(self, spotify_id: str, days: int = 7) -> bool:
-        """
-        Check if we've recently failed to find this track.
-        Uses exponential backoff - failures retry after increasing intervals.
-        """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT retry_after FROM search_failures WHERE spotify_id = ?",
-                (spotify_id,),
-            )
-            row = cursor.fetchone()
-            if row:
-                retry_after = datetime.datetime.fromisoformat(row[0])
+        """Check if we've recently failed to find this item."""
+        retry_after_str = self._failures.get(spotify_id)
+        if retry_after_str:
+            try:
+                retry_after = datetime.datetime.fromisoformat(retry_after_str)
                 return datetime.datetime.now() < retry_after
-            return False
+            except ValueError:
+                pass
+        return False
 
     def cache_failure(self, spotify_id: str):
         """
@@ -149,129 +106,67 @@ class MatchCache:
         First failure: retry after 1 day
         Each subsequent: double the interval (up to 30 days max)
         """
-        with sqlite3.connect(self.db_path) as conn:
-            # Check existing failure
-            cursor = conn.execute(
-                "SELECT created_at, retry_after FROM search_failures "
-                "WHERE spotify_id = ?",
-                (spotify_id,),
-            )
-            row = cursor.fetchone()
+        now = datetime.datetime.now()
 
-            now = datetime.datetime.now()
-
-            if row:
-                created = datetime.datetime.fromisoformat(row[0])
-                # Double the interval
-                current_interval = now - created
-                new_interval = min(current_interval * 2, datetime.timedelta(days=30))
-            else:
+        # Check existing failure for backoff
+        existing = self._failures.get(spotify_id)
+        if existing:
+            try:
+                old_retry = datetime.datetime.fromisoformat(existing)
+                # Double the interval from when we last set it
+                interval = now - old_retry
+                new_interval = min(abs(interval) * 2, datetime.timedelta(days=30))
+            except ValueError:
                 new_interval = datetime.timedelta(days=1)
+        else:
+            new_interval = datetime.timedelta(days=1)
 
-            retry_after = now + new_interval
-
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO search_failures
-                (spotify_id, created_at, retry_after)
-                VALUES (?, ?, ?)
-            """,
-                (spotify_id, now.isoformat(), retry_after.isoformat()),
-            )
-            conn.commit()
+        retry_after = now + new_interval
+        self._failures[spotify_id] = retry_after.isoformat()
+        self._auto_save()
 
     def remove_failure(self, spotify_id: str):
-        """Remove a failure entry (when track is later found)."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "DELETE FROM search_failures WHERE spotify_id = ?", (spotify_id,)
-            )
-            conn.commit()
+        """Remove a failure entry (when item is later found)."""
+        if spotify_id in self._failures:
+            del self._failures[spotify_id]
+            self._auto_save()
 
     def clear_cache(self):
         """Clear all cached data."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("DELETE FROM track_matches")
-            conn.execute("DELETE FROM album_matches")
-            conn.execute("DELETE FROM artist_matches")
-            conn.execute("DELETE FROM search_failures")
-            conn.commit()
-
-    def get_stats(self) -> dict:
-        """Get cache statistics."""
-        with sqlite3.connect(self.db_path) as conn:
-            track_matches = conn.execute(
-                "SELECT COUNT(*) FROM track_matches"
-            ).fetchone()[0]
-            album_matches = conn.execute(
-                "SELECT COUNT(*) FROM album_matches"
-            ).fetchone()[0]
-            artist_matches = conn.execute(
-                "SELECT COUNT(*) FROM artist_matches"
-            ).fetchone()[0]
-            failures = conn.execute("SELECT COUNT(*) FROM search_failures").fetchone()[
-                0
-            ]
-            return {
-                "cached_track_matches": track_matches,
-                "cached_album_matches": album_matches,
-                "cached_artist_matches": artist_matches,
-                "cached_failures": failures,
-            }
-
-
-class MemoryCache:
-    """
-    In-memory cache implementation that mimics MatchCache interface.
-    Used for webapp to avoid filesystem locking issues and shared state.
-    """
-
-    def __init__(self):
-        self._track_matches = {}
-        self._album_matches = {}
-        self._artist_matches = {}
-        self._failures = {}
-
-    def get_track_match(self, spotify_id: str) -> Optional[int]:
-        return self._track_matches.get(spotify_id)
-
-    def cache_track_match(self, spotify_id: str, tidal_id: int):
-        self._track_matches[spotify_id] = tidal_id
-
-    def get_album_match(self, spotify_id: str) -> Optional[int]:
-        return self._album_matches.get(spotify_id)
-
-    def cache_album_match(self, spotify_id: str, tidal_id: int):
-        self._album_matches[spotify_id] = tidal_id
-
-    def get_artist_match(self, spotify_id: str) -> Optional[int]:
-        return self._artist_matches.get(spotify_id)
-
-    def cache_artist_match(self, spotify_id: str, tidal_id: int):
-        self._artist_matches[spotify_id] = tidal_id
-
-    def has_recent_failure(self, spotify_id: str, days: int = 7) -> bool:
-        # In memory cache doesn't persist failures across sessions for "days",
-        # but we can respect failures *within* the session.
-        return spotify_id in self._failures
-
-    def cache_failure(self, spotify_id: str):
-        self._failures[spotify_id] = datetime.datetime.now()
-
-    def remove_failure(self, spotify_id: str):
-        if spotify_id in self._failures:
-            del self._failures[spotify_id]
-
-    def clear_cache(self):
         self._track_matches.clear()
         self._album_matches.clear()
         self._artist_matches.clear()
         self._failures.clear()
+        self._auto_save()
 
     def get_stats(self) -> dict:
+        """Get cache statistics."""
         return {
             "cached_track_matches": len(self._track_matches),
             "cached_album_matches": len(self._album_matches),
             "cached_artist_matches": len(self._artist_matches),
             "cached_failures": len(self._failures),
         }
+
+    def _auto_save(self):
+        """Auto-save to file if configured."""
+        if self._cache_file:
+            self.save_to_file()
+
+    # Export methods for webapp ZIP download
+    def to_dict(self) -> dict:
+        """Export cache data as a dictionary (for ZIP export)."""
+        return {
+            "tracks": self._track_matches.copy(),
+            "albums": self._album_matches.copy(),
+            "artists": self._artist_matches.copy(),
+        }
+
+    def load_from_dict(self, data: dict):
+        """Load cache data from a dictionary (for ZIP import)."""
+        for spotify_id, tidal_id in data.get("tracks", {}).items():
+            self._track_matches[spotify_id] = int(tidal_id)
+        for spotify_id, tidal_id in data.get("albums", {}).items():
+            self._album_matches[spotify_id] = int(tidal_id)
+        for spotify_id, tidal_id in data.get("artists", {}).items():
+            self._artist_matches[spotify_id] = int(tidal_id)

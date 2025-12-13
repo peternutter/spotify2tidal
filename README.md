@@ -15,7 +15,7 @@ This project combines and improves upon two open-source scripts:
 - **Smart matching** using ISRC, duration, name, and artist
 - **Order preservation** — oldest items appear at bottom (matching Spotify)
 - **Incremental sync** — skips items already in your Tidal library
-- **Caching** — persists Spotify→Tidal mappings in SQLite for fast re-runs
+- **Caching** — persists Spotify→Tidal mappings in JSON for fast re-runs
 - **Async** for fast parallel processing
 
 ## Web App

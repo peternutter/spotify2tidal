@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from .auth import open_spotify_session, open_tidal_session
+from .cache import MatchCache
 from .logging_utils import SyncLogger, UserErrors
 from .sync import SyncEngine
 
@@ -197,9 +198,13 @@ def main():
         logger.error(UserErrors.tidal_auth_failed(str(e)))
         sys.exit(1)
 
-    # Create sync engine
+    # Create sync engine with cache persistence
     sync_config = config.get("sync", {})
     library_config = config.get("library", {})
+    cache_file = str(Path.home() / ".spotify2tidal_cache.json")
+    cache = MatchCache(cache_file=cache_file)
+    logger.debug(f"Using cache: {cache_file} ({cache.get_stats()})")
+
     engine = SyncEngine(
         spotify,
         tidal,
@@ -207,6 +212,7 @@ def main():
         rate_limit=sync_config.get("rate_limit", 10),
         library_dir=library_config.get("export_dir", "./library"),
         logger=logger,
+        cache=cache,
     )
 
     # Determine what to sync
