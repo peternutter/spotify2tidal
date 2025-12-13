@@ -62,5 +62,5 @@ class TestMatchCache:
         temp_cache.cache_track_match("track1", 111)
         temp_cache.cache_failure("failed")
         stats = temp_cache.get_stats()
-        assert stats["cached_matches"] == 1
+        assert stats["cached_track_matches"] == 1
         assert stats["cached_failures"] == 1
