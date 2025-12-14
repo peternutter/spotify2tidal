@@ -54,6 +54,8 @@ def render_sidebar():
         render_performance_settings()
         st.divider()
 
+        render_activity_log()
+
         st.caption("v1.2.0 • Secure & Private")
         st.caption("No data is stored on our servers.")
 
@@ -72,7 +74,6 @@ def render_main():
     )
 
     render_troubleshooting()
-    render_activity_log()
 
     if not is_ready():
         st.markdown(
@@ -115,12 +116,13 @@ def render_main():
 
     # Sync button
     st.markdown('<div class="sync-btn">', unsafe_allow_html=True)
-    button_text = "Stop Sync" if st.session_state.sync_running else "Start Sync"
+    button_text = (
+        "🔄 Sync in Progress..." if st.session_state.sync_running else "🚀 Start Sync"
+    )
     if st.button(button_text, disabled=st.session_state.sync_running):
+        # Store sync options and trigger rerun so UI updates before sync starts
         st.session_state.sync_running = True
-        add_log("info", "Starting sync operation...")
-
-        sync_options = {
+        st.session_state.sync_options = {
             "all": sync_all,
             "playlists": playlists,
             "favorites": favorites,
@@ -128,6 +130,14 @@ def render_main():
             "artists": artists,
             "podcasts": podcasts,
         }
+        add_log("info", "Starting sync operation...")
+        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Run sync if triggered (runs after the rerun, so button shows "in progress")
+    if st.session_state.sync_running and st.session_state.get("sync_options"):
+        sync_options = st.session_state.sync_options
+        st.session_state.sync_options = None  # Clear to prevent re-running
 
         status_placeholder = st.empty()
         progress_placeholder = st.empty()
@@ -142,7 +152,6 @@ def render_main():
         except Exception as e:
             st.error(f"Sync failed: {e}")
             st.session_state.sync_running = False
-    st.markdown("</div>", unsafe_allow_html=True)
 
     # Show results
     if st.session_state.sync_results:

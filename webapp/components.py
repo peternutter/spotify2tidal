@@ -14,7 +14,7 @@ from .auth import (
     connect_spotify,
     start_tidal_login,
 )
-from .state import add_log, clear_logs
+from .state import add_log
 
 
 def render_file_upload():
@@ -103,42 +103,39 @@ def _restore_cache_from_json(cache_data: dict):
 
 
 def render_activity_log():
-    """Render the activity log panel."""
-    if st.session_state.sync_logs:
-        with st.expander("Activity Log", expanded=False):
-            log_html = '<div class="activity-log">'
-            for entry in reversed(st.session_state.sync_logs[-50:]):
-                time_str = entry.timestamp.strftime("%H:%M:%S")
-                level_class = f"log-{entry.level.name_str.lower()}"
-                log_html += f"""
-                    <div class="log-entry">
-                        <span class="log-time">{time_str}</span>
-                        <span class="{level_class}">
-                            {entry.level.icon} {entry.message}
-                        </span>
-                    </div>
-                """
-            log_html += "</div>"
-            st.markdown(log_html, unsafe_allow_html=True)
+    """Render the activity log panel in the sidebar."""
+    if not st.session_state.sync_logs:
+        return
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("Clear Log", key="clear_log"):
-                    clear_logs()
-                    st.rerun()
-            with col2:
-                log_text = "\n".join(
-                    f"[{e.timestamp.strftime('%H:%M:%S')}] "
-                    f"{e.level.name_str}: {e.message}"
-                    for e in st.session_state.sync_logs
-                )
-                st.download_button(
-                    "Download Log",
-                    data=log_text,
-                    file_name="sync_log.txt",
-                    mime="text/plain",
-                    key="download_log",
-                )
+    with st.expander("📋 Activity Log", expanded=False):
+        # Build compact HTML log entries
+        log_entries = []
+        for entry in reversed(st.session_state.sync_logs[-30:]):
+            time_str = entry.timestamp.strftime("%H:%M:%S")
+            level_class = f"log-{entry.level.name_str.lower()}"
+            log_entries.append(
+                f'<div class="log-entry">'
+                f'<span class="log-time">{time_str}</span>'
+                f'<span class="{level_class}">{entry.message}</span>'
+                f"</div>"
+            )
+
+        log_html = f'<div class="activity-log">{"".join(log_entries)}</div>'
+        st.markdown(log_html, unsafe_allow_html=True)
+
+        # Download button only (removed Clear button for simplicity)
+        log_text = "\n".join(
+            f"[{e.timestamp.strftime('%H:%M:%S')}] " f"{e.level.name_str}: {e.message}"
+            for e in st.session_state.sync_logs
+        )
+        st.download_button(
+            "📥 Download Log",
+            data=log_text,
+            file_name="sync_log.txt",
+            mime="text/plain",
+            key="download_log",
+            use_container_width=True,
+        )
 
 
 def render_troubleshooting():
@@ -304,9 +301,3 @@ def render_sync_results(results: dict):
             key="download_results",
             help="Download CSVs of synced and not-found items.",
         )
-
-    if st.button("Sync Again"):
-        st.session_state.sync_results = None
-        st.session_state.export_files = {}
-        clear_logs()
-        st.rerun()
