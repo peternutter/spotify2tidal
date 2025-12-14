@@ -30,20 +30,27 @@ _SpotipyCacheHandlerBase = _get_spotipy_cache_handler_base() or object
 
 
 class _StreamlitSessionCacheHandler(_SpotipyCacheHandlerBase):
-    """Spotipy cache handler backed by Streamlit session_state."""
+    """Spotipy cache handler backed by an in-memory dict.
 
-    def __init__(self, key: str = "spotify_token_info"):
-        self.key = key
+    Why: Spotipy calls the cache handler from whatever thread performs the request.
+    In this app, some Spotify API calls run inside `asyncio.to_thread(...)`.
+    Accessing `st.session_state` from those worker threads triggers
+    `missing ScriptRunContext` warnings and can make Spotipy think there is no
+    cached token (leading to interactive terminal prompts).
+    """
+
+    def __init__(self, token_store: dict[str, Any]):
+        self._store = token_store
 
     def get_cached_token(self) -> Optional[dict[str, Any]]:
-        token = st.session_state.get(self.key)
+        token = self._store.get("token_info")
         return token if isinstance(token, dict) else None
 
     def save_token_to_cache(self, token_info: dict[str, Any]) -> None:
-        st.session_state[self.key] = token_info
+        self._store["token_info"] = token_info
 
     def delete_cached_token(self) -> None:
-        st.session_state.pop(self.key, None)
+        self._store.pop("token_info", None)
 
 
 def _infer_local_streamlit_redirect_uri() -> str:
@@ -128,20 +135,26 @@ def get_spotify_auth_manager():
     if not creds:
         return None
 
+    # Thread-safe token store (dict) that persists for the Streamlit session.
+    # NOTE: we intentionally avoid touching st.session_state from worker threads.
+    token_store = st.session_state.setdefault("spotify_token_store", {})
+
     return SpotifyOAuth(
         client_id=creds["client_id"],
         client_secret=creds["client_secret"],
         redirect_uri=creds["redirect_uri"],
         scope=(
             "user-library-read "
+            "user-library-modify "
             "playlist-read-private "
             "user-follow-read "
+            "user-follow-modify "
             "playlist-modify-private "
             "playlist-modify-public "
             "user-read-playback-position"
         ),
         open_browser=False,
-        cache_handler=_StreamlitSessionCacheHandler(),
+        cache_handler=_StreamlitSessionCacheHandler(token_store=token_store),
     )
 
 

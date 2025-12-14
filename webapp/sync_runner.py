@@ -33,6 +33,7 @@ async def run_sync(
     if details_placeholder is None:
         details_placeholder = st.empty()
 
+    direction = sync_options.get("direction", "to_tidal")
     item_limit = sync_options.get("item_limit")
     if item_limit:
         add_log("warning", f"⚠️  Test run enabled: limiting to {int(item_limit)} items")
@@ -86,8 +87,10 @@ async def run_sync(
                 progress_state["cache_hits"] += 1
         elif event == "total":
             progress_state["total"] = total
+            _update_progress_display()
         elif event == "phase":
             progress_state["phase"] = phase
+            _update_progress_display()
 
     def _update_progress_display():
         """Update the progress display in Streamlit."""
@@ -95,14 +98,31 @@ async def run_sync(
         total = progress_state["total"]
         phase = progress_state["phase"]
 
+        phase_emoji = {
+            "fetching": "📥",
+            "searching": "🔍",
+            "adding": "➕",
+            "exporting": "📤",
+        }.get(phase, "⏳")
+
+        # When fetching, we often don't know the final total yet.
+        # Still show *something* so users can tell the app is working.
         if total > 0:
             progress_frac = min(1.0, current / total)
-            phase_emoji = {"fetching": "📥", "searching": "🔍", "adding": "➕"}.get(
-                phase, "⏳"
-            )
             progress_bar.progress(
                 progress_frac, text=f"{phase_emoji} {current:,} / {total:,}"
             )
+        else:
+            if current > 0:
+                progress_bar.progress(0.0, text=f"{phase_emoji} {current:,} items")
+            else:
+                phase_label = {
+                    "fetching": "Fetching",
+                    "searching": "Searching",
+                    "adding": "Adding",
+                    "exporting": "Exporting",
+                }.get(phase, "Working")
+                progress_bar.progress(0.0, text=f"{phase_emoji} {phase_label}...")
 
     # Cross-session throttle (shared within the Streamlit worker process)
     global_throttle = get_global_throttle(
@@ -127,16 +147,27 @@ async def run_sync(
     steps = []
 
     # Determine which steps to run
-    if sync_options.get("all") or sync_options.get("playlists"):
-        steps.append(("playlists", "Syncing playlists"))
-    if sync_options.get("all") or sync_options.get("favorites"):
-        steps.append(("favorites", "Syncing liked songs"))
-    if sync_options.get("all") or sync_options.get("albums"):
-        steps.append(("albums", "Syncing saved albums"))
-    if sync_options.get("all") or sync_options.get("artists"):
-        steps.append(("artists", "Syncing followed artists"))
-    if sync_options.get("all") or sync_options.get("podcasts"):
-        steps.append(("podcasts", "Exporting podcasts"))
+    if direction == "to_spotify":
+        # Reverse sync (Tidal -> Spotify). We currently support
+        # favorites/albums/artists.
+        if sync_options.get("all") or sync_options.get("favorites"):
+            steps.append(("favorites", "Syncing Tidal favorites to Spotify"))
+        if sync_options.get("all") or sync_options.get("albums"):
+            steps.append(("albums", "Syncing Tidal albums to Spotify"))
+        if sync_options.get("all") or sync_options.get("artists"):
+            steps.append(("artists", "Syncing Tidal artists to Spotify"))
+    else:
+        # Default direction (Spotify -> Tidal).
+        if sync_options.get("all") or sync_options.get("playlists"):
+            steps.append(("playlists", "Syncing playlists"))
+        if sync_options.get("all") or sync_options.get("favorites"):
+            steps.append(("favorites", "Syncing liked songs"))
+        if sync_options.get("all") or sync_options.get("albums"):
+            steps.append(("albums", "Syncing saved albums"))
+        if sync_options.get("all") or sync_options.get("artists"):
+            steps.append(("artists", "Syncing followed artists"))
+        if sync_options.get("all") or sync_options.get("podcasts"):
+            steps.append(("podcasts", "Exporting podcasts"))
 
     total_steps = len(steps)
     steps_done = 0
@@ -155,20 +186,31 @@ async def run_sync(
             step_info = f"**Step {steps_done + 1}/{total_steps}**: {step_name}"
             details_placeholder.markdown(step_info)
 
-            if step_key == "playlists":
-                results["playlists"] = await engine.sync_all_playlists()
-            elif step_key == "favorites":
-                added, nf = await engine.sync_favorites()
-                results["favorites"] = {"added": added, "not_found": nf}
-            elif step_key == "albums":
-                added, nf = await engine.sync_albums()
-                results["albums"] = {"added": added, "not_found": nf}
-            elif step_key == "artists":
-                added, nf = await engine.sync_artists()
-                results["artists"] = {"added": added, "not_found": nf}
-            elif step_key == "podcasts":
-                count = await engine.export_podcasts()
-                results["podcasts"] = {"exported": count}
+            if direction == "to_spotify":
+                if step_key == "favorites":
+                    added, nf = await engine.sync_favorites_to_spotify()
+                    results["favorites"] = {"added": added, "not_found": nf}
+                elif step_key == "albums":
+                    added, nf = await engine.sync_albums_to_spotify()
+                    results["albums"] = {"added": added, "not_found": nf}
+                elif step_key == "artists":
+                    added, nf = await engine.sync_artists_to_spotify()
+                    results["artists"] = {"added": added, "not_found": nf}
+            else:
+                if step_key == "playlists":
+                    results["playlists"] = await engine.sync_all_playlists()
+                elif step_key == "favorites":
+                    added, nf = await engine.sync_favorites()
+                    results["favorites"] = {"added": added, "not_found": nf}
+                elif step_key == "albums":
+                    added, nf = await engine.sync_albums()
+                    results["albums"] = {"added": added, "not_found": nf}
+                elif step_key == "artists":
+                    added, nf = await engine.sync_artists()
+                    results["artists"] = {"added": added, "not_found": nf}
+                elif step_key == "podcasts":
+                    count = await engine.export_podcasts()
+                    results["podcasts"] = {"exported": count}
 
             steps_done += 1
             add_log("success", f"{step_name} ✓")
@@ -177,18 +219,28 @@ async def run_sync(
             overall_progress = steps_done / max(total_steps, 1)
             progress_bar.progress(overall_progress, text=f"✓ {step_name} complete")
 
-        # Export library data
-        status_placeholder.info("🔄 Exporting library data...")
+        # Export data bundle
+        status_placeholder.info("🔄 Exporting data...")
         progress_bar.progress(0.95, text="📤 Exporting...")
-        add_log("progress", "Exporting library data...")
+        add_log("progress", "Exporting data...")
 
         if results:
-            export_result = engine.export_library()
             export_files = {}
-            if export_result.get("files"):
-                for key, content in export_result["files"].items():
+
+            if direction == "to_spotify":
+                # For reverse sync, export the current Tidal library snapshot.
+                tidal_exports = await engine.export_tidal_library()
+                for key, content in (tidal_exports or {}).items():
                     filename = f"{key}.csv" if not str(key).endswith(".csv") else key
                     export_files[str(filename)] = content
+            else:
+                export_result = engine.export_library()
+                if export_result.get("files"):
+                    for key, content in export_result["files"].items():
+                        filename = (
+                            f"{key}.csv" if not str(key).endswith(".csv") else key
+                        )
+                        export_files[str(filename)] = content
 
             # Also export cache data for future restore
             import json

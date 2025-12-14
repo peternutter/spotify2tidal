@@ -27,7 +27,7 @@ from webapp.sync_runner import run_sync
 
 # Page configuration
 st.set_page_config(
-    page_title="Spotify to Tidal Sync",
+    page_title="Spotify ↔ Tidal Sync",
     page_icon="S",
     layout="centered",
     initial_sidebar_state="expanded",
@@ -64,12 +64,12 @@ def render_sidebar():
 def render_main():
     """Render the main content area."""
     st.markdown(
-        '<h1 class="main-title">Spotify to Tidal Sync</h1>',
+        '<h1 class="main-title">Spotify ↔ Tidal Sync</h1>',
         unsafe_allow_html=True,
     )
     st.markdown(
         '<p class="main-subtitle">'
-        "Transfer your Spotify library to Tidal with one click"
+        "Use a unified library as ground truth to sync either direction"
         "</p>",
         unsafe_allow_html=True,
     )
@@ -109,23 +109,51 @@ def render_main():
     # Sync options
     st.subheader("What would you like to sync?")
 
-    col1, col2 = st.columns(2)
+    # Users choose direction by which Start button they press.
+    # Show options for the *last* chosen direction to avoid confusion.
+    direction = st.session_state.get("sync_direction", "to_tidal")
 
+    if direction == "to_spotify":
+        st.caption("Current flow: Tidal → Spotify (favorites, albums, artists).")
+    else:
+        st.caption(
+            "Current flow: Spotify → Tidal (playlists, liked songs, albums, artists)."
+        )
+
+    col1, col2 = st.columns(2)
     with col1:
-        sync_all = st.checkbox("Everything (recommended)", value=True, key="sync_all")
+        sync_all = st.checkbox(
+            "Everything (recommended)",
+            value=True,
+            key="sync_all",
+        )
 
     with col2:
-        if not sync_all:
-            playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
-            favorites = st.checkbox("Liked Songs", value=True, key="sync_favorites")
-            albums = st.checkbox("Saved Albums", value=True, key="sync_albums")
-            artists = st.checkbox("Followed Artists", value=True, key="sync_artists")
-            podcasts = st.checkbox(
-                "Podcasts (export only)", value=False, key="sync_podcasts"
-            )
-        else:
-            playlists = favorites = albums = artists = True
+        if direction == "to_spotify":
+            if not sync_all:
+                favorites = st.checkbox(
+                    "Favorites / Liked Songs", value=True, key="sync_favorites"
+                )
+                albums = st.checkbox("Albums", value=True, key="sync_albums")
+                artists = st.checkbox("Artists", value=True, key="sync_artists")
+            else:
+                favorites = albums = artists = True
+            playlists = False
             podcasts = False
+        else:
+            if not sync_all:
+                playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
+                favorites = st.checkbox("Liked Songs", value=True, key="sync_favorites")
+                albums = st.checkbox("Saved Albums", value=True, key="sync_albums")
+                artists = st.checkbox(
+                    "Followed Artists", value=True, key="sync_artists"
+                )
+                podcasts = st.checkbox(
+                    "Podcasts (export only)", value=False, key="sync_podcasts"
+                )
+            else:
+                playlists = favorites = albums = artists = True
+                podcasts = False
 
     st.divider()
 
@@ -150,29 +178,71 @@ def render_main():
                 help="Matches the CLI --limit behavior.",
             )
 
-    # Sync button
+    # Start buttons (choose direction)
     st.markdown('<div class="sync-btn">', unsafe_allow_html=True)
-    button_text = (
-        "🔄 Sync in Progress..." if st.session_state.sync_running else "🚀 Start Sync"
-    )
-    if st.button(button_text, disabled=st.session_state.sync_running):
-        # Store sync options and trigger rerun so UI updates before sync starts
-        st.session_state.sync_running = True
-        st.session_state.sync_started_at = time.time()
-        # Clear any previous error details so troubleshooting reflects the current run
-        st.session_state.last_error = None
-        st.session_state.last_traceback = None
-        st.session_state.sync_options = {
-            "all": sync_all,
-            "playlists": playlists,
-            "favorites": favorites,
-            "albums": albums,
-            "artists": artists,
-            "podcasts": podcasts,
-            "item_limit": int(item_limit) if item_limit else None,
-        }
-        add_log("info", "Starting sync operation...")
-        st.rerun()
+    col_a, col_b = st.columns(2)
+
+    if st.session_state.sync_running:
+        col_a.button(
+            "🔄 Sync in Progress...",
+            disabled=True,
+            use_container_width=True,
+            key="sync_in_progress_left",
+        )
+        col_b.button(
+            "🔄 Sync in Progress...",
+            disabled=True,
+            use_container_width=True,
+            key="sync_in_progress_right",
+        )
+    else:
+        if col_a.button(
+            "🚀 Start Spotify → Tidal",
+            disabled=st.session_state.sync_running,
+            use_container_width=True,
+            key="start_to_tidal",
+        ):
+            st.session_state.sync_direction = "to_tidal"
+            st.session_state.sync_running = True
+            st.session_state.sync_started_at = time.time()
+            st.session_state.last_error = None
+            st.session_state.last_traceback = None
+            st.session_state.sync_options = {
+                "direction": "to_tidal",
+                "all": sync_all,
+                "playlists": playlists,
+                "favorites": favorites,
+                "albums": albums,
+                "artists": artists,
+                "podcasts": podcasts,
+                "item_limit": int(item_limit) if item_limit else None,
+            }
+            add_log("info", "Starting Spotify → Tidal sync...")
+            st.rerun()
+
+        if col_b.button(
+            "🚀 Start Tidal → Spotify",
+            disabled=st.session_state.sync_running,
+            use_container_width=True,
+            key="start_to_spotify",
+        ):
+            st.session_state.sync_direction = "to_spotify"
+            st.session_state.sync_running = True
+            st.session_state.sync_started_at = time.time()
+            st.session_state.last_error = None
+            st.session_state.last_traceback = None
+            st.session_state.sync_options = {
+                "direction": "to_spotify",
+                "all": sync_all,
+                "playlists": False,
+                "favorites": favorites,
+                "albums": albums,
+                "artists": artists,
+                "podcasts": False,
+                "item_limit": int(item_limit) if item_limit else None,
+            }
+            add_log("info", "Starting Tidal → Spotify sync...")
+            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Run sync if triggered (runs after the rerun, so button shows "in progress")

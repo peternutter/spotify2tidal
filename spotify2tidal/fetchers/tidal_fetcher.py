@@ -130,8 +130,10 @@ class TidalFetcher:
 
         return all_ids
 
-    async def get_favorite_tracks(self) -> List[tidalapi.Track]:
-        """Get ALL favorite tracks from Tidal (full objects, not just IDs)."""
+    async def get_favorite_tracks(
+        self, limit_total: Optional[int] = None
+    ) -> List[tidalapi.Track]:
+        """Get favorite tracks from Tidal (full objects, optionally limited)."""
         all_tracks: List[tidalapi.Track] = []
         limit = 100
         offset = 0
@@ -142,6 +144,11 @@ class TidalFetcher:
                 break
 
             all_tracks.extend(page)
+            if limit_total and len(all_tracks) >= limit_total:
+                self._log_progress(
+                    f"Fetching Tidal tracks (limited): {len(all_tracks)}..."
+                )
+                return all_tracks[:limit_total]
             self._log_progress(f"Fetching Tidal tracks: {len(all_tracks)}...")
 
             if len(page) < limit:
@@ -150,8 +157,10 @@ class TidalFetcher:
 
         return all_tracks
 
-    async def get_favorite_albums(self) -> List[tidalapi.Album]:
-        """Get ALL favorite albums from Tidal (full objects, not just IDs)."""
+    async def get_favorite_albums(
+        self, limit_total: Optional[int] = None
+    ) -> List[tidalapi.Album]:
+        """Get favorite albums from Tidal (full objects, optionally limited)."""
         all_albums: List[tidalapi.Album] = []
         limit = 100
         offset = 0
@@ -162,6 +171,11 @@ class TidalFetcher:
                 break
 
             all_albums.extend(page)
+            if limit_total and len(all_albums) >= limit_total:
+                self._log_progress(
+                    f"Fetching Tidal albums (limited): {len(all_albums)}..."
+                )
+                return all_albums[:limit_total]
             self._log_progress(f"Fetching Tidal albums: {len(all_albums)}...")
 
             if len(page) < limit:
@@ -170,8 +184,10 @@ class TidalFetcher:
 
         return all_albums
 
-    async def get_favorite_artists(self) -> List[tidalapi.Artist]:
-        """Get ALL favorite artists from Tidal (full objects, not just IDs)."""
+    async def get_favorite_artists(
+        self, limit_total: Optional[int] = None
+    ) -> List[tidalapi.Artist]:
+        """Get favorite artists from Tidal (full objects, optionally limited)."""
         all_artists: List[tidalapi.Artist] = []
         limit = 100
         offset = 0
@@ -182,6 +198,11 @@ class TidalFetcher:
                 break
 
             all_artists.extend(page)
+            if limit_total and len(all_artists) >= limit_total:
+                self._log_progress(
+                    f"Fetching Tidal artists (limited): {len(all_artists)}..."
+                )
+                return all_artists[:limit_total]
             self._log_progress(f"Fetching Tidal artists: {len(all_artists)}...")
 
             if len(page) < limit:

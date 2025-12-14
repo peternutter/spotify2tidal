@@ -35,7 +35,7 @@ class SyncEngine:
         tidal: tidalapi.Session,
         max_concurrent: int = 10,
         rate_limit: float = 10,
-        library_dir: str = "./library",
+        library_dir: Optional[str] = "./library",
         logger: Optional["SyncLogger"] = None,
         cache: Optional[MatchCache] = None,
         progress_callback=None,
@@ -48,7 +48,16 @@ class SyncEngine:
         # Use provided rate_limiter or create new one
         self.rate_limiter = rate_limiter or RateLimiter(max_concurrent, rate_limit)
         self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
-        self.library = LibraryExporter(library_dir) if library_dir else None
+        # Library export behavior:
+        # - library_dir is None  -> in-memory export (webapp)
+        # - library_dir is truthy -> export to that directory (CLI default)
+        # - library_dir is falsy ("" / 0) -> disable exporting entirely
+        if library_dir is None:
+            self.library = LibraryExporter(None)
+        elif library_dir:
+            self.library = LibraryExporter(library_dir)
+        else:
+            self.library = None
         self._logger = logger
         self._progress_callback = progress_callback
         self._item_limit = item_limit
@@ -73,6 +82,49 @@ class SyncEngine:
         if self._item_limit and len(items) > self._item_limit:
             return items[: self._item_limit]
         return items
+
+    async def _fetch_spotify_saved_tracks(self) -> List[dict]:
+        if self._item_limit:
+            return await self.spotify_fetcher.get_saved_tracks(limit=self._item_limit)
+        return await self.spotify_fetcher.get_saved_tracks()
+
+    async def _fetch_spotify_saved_albums(self) -> List[dict]:
+        if self._item_limit:
+            return await self.spotify_fetcher.get_saved_albums(limit=self._item_limit)
+        return await self.spotify_fetcher.get_saved_albums()
+
+    async def _fetch_spotify_followed_artists(self) -> List[dict]:
+        if self._item_limit:
+            return await self.spotify_fetcher.get_followed_artists(
+                limit=self._item_limit
+            )
+        return await self.spotify_fetcher.get_followed_artists()
+
+    async def _fetch_spotify_saved_shows(self) -> List[dict]:
+        if self._item_limit:
+            return await self.spotify_fetcher.get_saved_shows(limit=self._item_limit)
+        return await self.spotify_fetcher.get_saved_shows()
+
+    async def _fetch_tidal_favorite_tracks(self) -> List[tidalapi.Track]:
+        if self._item_limit:
+            return await self.tidal_fetcher.get_favorite_tracks(
+                limit_total=self._item_limit
+            )
+        return await self.tidal_fetcher.get_favorite_tracks()
+
+    async def _fetch_tidal_favorite_albums(self) -> List[tidalapi.Album]:
+        if self._item_limit:
+            return await self.tidal_fetcher.get_favorite_albums(
+                limit_total=self._item_limit
+            )
+        return await self.tidal_fetcher.get_favorite_albums()
+
+    async def _fetch_tidal_favorite_artists(self) -> List[tidalapi.Artist]:
+        if self._item_limit:
+            return await self.tidal_fetcher.get_favorite_artists(
+                limit_total=self._item_limit
+            )
+        return await self.tidal_fetcher.get_favorite_artists()
 
     def _report_progress(self, **kwargs):
         """Report progress to callback if available."""
@@ -127,6 +179,9 @@ class SyncEngine:
 
             if not spotify_tracks:
                 return 0, 0
+
+            # Apply limit if in debug mode
+            spotify_tracks = self._apply_limit(spotify_tracks)
 
             # Get or create Tidal playlist
             if tidal_playlist_id:
@@ -213,7 +268,7 @@ class SyncEngine:
         return await sync_items(
             SyncConfig(
                 item_type="track",
-                fetch_source=self.spotify_fetcher.get_saved_tracks,
+                fetch_source=self._fetch_spotify_saved_tracks,
                 fetch_existing_ids=self.tidal_fetcher.get_favorite_track_ids,
                 search_item=self.searcher.search_track,
                 get_source_id=lambda item: item.get("id"),
@@ -238,7 +293,7 @@ class SyncEngine:
         return await sync_items(
             SyncConfig(
                 item_type="album",
-                fetch_source=self.spotify_fetcher.get_saved_albums,
+                fetch_source=self._fetch_spotify_saved_albums,
                 fetch_existing_ids=self.tidal_fetcher.get_favorite_album_ids,
                 search_item=lambda item: self.searcher.search_album(
                     item.get("album", {})
@@ -265,7 +320,7 @@ class SyncEngine:
         return await sync_items(
             SyncConfig(
                 item_type="artist",
-                fetch_source=self.spotify_fetcher.get_followed_artists,
+                fetch_source=self._fetch_spotify_followed_artists,
                 fetch_existing_ids=self.tidal_fetcher.get_favorite_artist_ids,
                 search_item=self.searcher.search_artist,
                 get_source_id=lambda item: item.get("id"),
@@ -286,7 +341,12 @@ class SyncEngine:
         user_id = self.spotify.current_user()["id"]
 
         results = {}
-        for playlist in playlists["items"]:
+        items = playlists["items"]
+
+        # Apply limit if in debug mode
+        items = self._apply_limit(items)
+
+        for playlist in items:
             if playlist["owner"]["id"] != user_id:
                 continue  # Skip playlists not owned by user
 
@@ -303,8 +363,11 @@ class SyncEngine:
         Note: Tidal doesn't support podcasts, so this is export-only.
         Returns the number of podcasts exported.
         """
+        # Report fetching phase for webapp progress UI.
+        self._report_progress(event="phase", phase="fetching")
+
         # Get Spotify saved shows
-        podcasts = await self._get_spotify_saved_shows()
+        podcasts = await self._fetch_spotify_saved_shows()
         logger.info(f"Found {len(podcasts)} saved podcasts/shows on Spotify")
 
         if podcasts and self.library:
@@ -332,6 +395,10 @@ class SyncEngine:
 
     async def _get_spotify_playlist_tracks(self, playlist_id: str) -> List[dict]:
         """Get all tracks from a Spotify playlist."""
+        if self._item_limit:
+            return await self.spotify_fetcher.get_playlist_tracks(
+                playlist_id, limit=self._item_limit
+            )
         return await self.spotify_fetcher.get_playlist_tracks(playlist_id)
 
     async def _get_spotify_saved_tracks(self) -> List[dict]:
@@ -461,7 +528,7 @@ class SyncEngine:
         return await sync_items_batched(
             SyncConfig(
                 item_type="track",
-                fetch_source=self.tidal_fetcher.get_favorite_tracks,
+                fetch_source=self._fetch_tidal_favorite_tracks,
                 fetch_existing_ids=self.spotify_fetcher.get_saved_track_ids,
                 search_item=searcher.search_track,
                 get_source_id=lambda item: item.id,
@@ -489,7 +556,7 @@ class SyncEngine:
         return await sync_items_batched(
             SyncConfig(
                 item_type="album",
-                fetch_source=self.tidal_fetcher.get_favorite_albums,
+                fetch_source=self._fetch_tidal_favorite_albums,
                 fetch_existing_ids=self.spotify_fetcher.get_saved_album_ids,
                 search_item=searcher.search_album,
                 get_source_id=lambda item: item.id,
@@ -517,7 +584,7 @@ class SyncEngine:
         return await sync_items_batched(
             SyncConfig(
                 item_type="artist",
-                fetch_source=self.tidal_fetcher.get_favorite_artists,
+                fetch_source=self._fetch_tidal_favorite_artists,
                 fetch_existing_ids=self.spotify_fetcher.get_followed_artist_ids,
                 search_item=searcher.search_artist,
                 get_source_id=lambda item: item.id,

@@ -114,11 +114,16 @@ def init_session_state():
         "spotify_connected": False,
         "tidal_connected": False,
         "spotify_client": None,
+        # Token store used by Spotipy cache_handler. Must be a plain dict so it can
+        # be safely accessed by worker threads (no ScriptRunContext required).
+        "spotify_token_store": {},
         "tidal_session": None,
         "tidal_login_url": None,
         "tidal_device_code": None,
         "tidal_future": None,
         "sync_running": False,
+        # Last chosen sync direction: "to_tidal" or "to_spotify"
+        "sync_direction": "to_tidal",
         "sync_results": None,
         "sync_logs": [],
         "last_error": None,
@@ -137,6 +142,18 @@ def init_session_state():
     # Warm the global throttle so it exists before any sync begins.
     # This is a no-op on subsequent runs.
     get_global_throttle(max_concurrent, rate_limit)
+
+    # Migration: older sessions stored token directly under spotify_token_info.
+    # Copy it into the token store if present so Spotipy can read it from threads.
+    if (
+        "spotify_token_info" in st.session_state
+        and isinstance(st.session_state.get("spotify_token_info"), dict)
+        and isinstance(st.session_state.get("spotify_token_store"), dict)
+        and not st.session_state["spotify_token_store"].get("token_info")
+    ):
+        st.session_state["spotify_token_store"]["token_info"] = st.session_state[
+            "spotify_token_info"
+        ]
 
 
 def add_log(level: str, message: str):

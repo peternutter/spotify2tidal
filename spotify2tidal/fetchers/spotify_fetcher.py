@@ -35,8 +35,8 @@ class SpotifyFetcher:
         if self._progress_callback:
             self._progress_callback(message)
 
-    async def get_saved_tracks(self) -> List[dict]:
-        """Get all saved/liked tracks from Spotify."""
+    async def get_saved_tracks(self, limit: Optional[int] = None) -> List[dict]:
+        """Get saved/liked tracks from Spotify (optionally limited)."""
         tracks = []
         results = self.spotify.current_user_saved_tracks()
 
@@ -44,6 +44,11 @@ class SpotifyFetcher:
             for item in results["items"]:
                 if item["track"]:
                     tracks.append(item["track"])
+                if limit and len(tracks) >= limit:
+                    self._log_progress(
+                        f"Fetching saved tracks (limited): {len(tracks)} tracks..."
+                    )
+                    return tracks[:limit]
 
             self._log_progress(f"Fetching saved tracks: {len(tracks)} tracks...")
 
@@ -53,13 +58,18 @@ class SpotifyFetcher:
 
         return tracks
 
-    async def get_saved_albums(self) -> List[dict]:
-        """Get all saved albums from Spotify."""
+    async def get_saved_albums(self, limit: Optional[int] = None) -> List[dict]:
+        """Get saved albums from Spotify (optionally limited)."""
         albums = []
         results = self.spotify.current_user_saved_albums()
 
         while True:
             albums.extend(results["items"])
+            if limit and len(albums) >= limit:
+                self._log_progress(
+                    f"Fetching saved albums (limited): {len(albums)} albums..."
+                )
+                return albums[:limit]
             self._log_progress(f"Fetching saved albums: {len(albums)} albums...")
 
             if not results["next"]:
@@ -68,13 +78,18 @@ class SpotifyFetcher:
 
         return albums
 
-    async def get_followed_artists(self) -> List[dict]:
-        """Get all followed artists from Spotify."""
+    async def get_followed_artists(self, limit: Optional[int] = None) -> List[dict]:
+        """Get followed artists from Spotify (optionally limited)."""
         artists = []
         results = self.spotify.current_user_followed_artists()["artists"]
 
         while True:
             artists.extend(results["items"])
+            if limit and len(artists) >= limit:
+                self._log_progress(
+                    f"Fetching followed artists (limited): {len(artists)} artists..."
+                )
+                return artists[:limit]
             self._log_progress(f"Fetching followed artists: {len(artists)} artists...")
 
             if not results["next"]:
@@ -83,8 +98,10 @@ class SpotifyFetcher:
 
         return artists
 
-    async def get_playlist_tracks(self, playlist_id: str) -> List[dict]:
-        """Get all tracks from a Spotify playlist."""
+    async def get_playlist_tracks(
+        self, playlist_id: str, limit: Optional[int] = None
+    ) -> List[dict]:
+        """Get tracks from a Spotify playlist (optionally limited)."""
         tracks = []
         results = self.spotify.playlist_tracks(playlist_id)
 
@@ -92,6 +109,8 @@ class SpotifyFetcher:
             for item in results["items"]:
                 if item["track"] and item["track"].get("type") == "track":
                     tracks.append(item["track"])
+                if limit and len(tracks) >= limit:
+                    return tracks[:limit]
 
             if not results["next"]:
                 break
@@ -99,14 +118,19 @@ class SpotifyFetcher:
 
         return tracks
 
-    async def get_saved_shows(self) -> List[dict]:
-        """Get all saved shows/podcasts from Spotify."""
+    async def get_saved_shows(self, limit: Optional[int] = None) -> List[dict]:
+        """Get saved shows/podcasts from Spotify (optionally limited)."""
         shows = []
         try:
             results = self.spotify.current_user_saved_shows()
 
             while True:
                 shows.extend(results["items"])
+                if limit and len(shows) >= limit:
+                    self._log_progress(
+                        f"Fetching saved podcasts (limited): {len(shows)} shows..."
+                    )
+                    return shows[:limit]
                 self._log_progress(f"Fetching saved podcasts: {len(shows)} shows...")
 
                 if not results["next"]:

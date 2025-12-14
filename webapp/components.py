@@ -353,8 +353,14 @@ def render_connection_status():
     st.subheader("Status")
     ready = st.session_state.spotify_connected and st.session_state.tidal_connected
     if ready:
+        direction = st.session_state.get("sync_direction", "to_tidal")
+        direction_label = (
+            "Spotify → Tidal" if direction != "to_spotify" else "Tidal → Spotify"
+        )
         st.markdown(
-            '<div class="success-card">✅ Ready to sync</div>',
+            f'<div class="success-card">✅ Ready to sync<br/>'
+            f'<span style="color: var(--text-2); font-size: 0.95rem;">'
+            f"Flow: {direction_label}</span></div>",
             unsafe_allow_html=True,
         )
     else:
