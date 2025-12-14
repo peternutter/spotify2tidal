@@ -1,6 +1,6 @@
 # spotify2tidal
 
-Sync your Spotify library to Tidal — playlists, favorites, albums, artists, and podcasts.
+Sync your music library between Spotify and Tidal — **bidirectionally**.
 
 This project combines and improves upon two open-source scripts:
 
@@ -9,14 +9,15 @@ This project combines and improves upon two open-source scripts:
 
 ## Features
 
+- **Bidirectional sync** — Spotify → Tidal and Tidal → Spotify
 - **Sync playlists** with incremental updates (only adds new tracks)
 - **Sync favorites** (liked tracks), albums, and followed artists
 - **Export podcasts** to CSV (Tidal doesn't support podcasts)
 - **Smart matching** using ISRC, duration, name, and artist
 - **Order preservation** — oldest items appear at bottom (matching Spotify)
-- **Incremental sync** — skips items already in your Tidal library
-- **Caching** — persists Spotify→Tidal mappings in JSON for fast re-runs
-- **Async** for fast parallel processing
+- **Incremental sync** — skips items already in your library
+- **Caching** — persists track mappings in JSON for fast re-runs
+- **Library status** — see what's on each platform and what's missing
 
 ## Web App
 
@@ -61,19 +62,43 @@ pip install -e .
 
 ## CLI Usage
 
+### Spotify → Tidal (default)
+
 ```bash
 # Sync everything (playlists, favorites, albums, artists)
 spotify2tidal --all
 
 # Sync specific categories
-spotify2tidal --playlists    # All playlists
 spotify2tidal --favorites    # Liked tracks
 spotify2tidal --albums       # Saved albums
 spotify2tidal --artists      # Followed artists
-spotify2tidal --podcasts     # Export podcasts to CSV (no Tidal sync)
+spotify2tidal --playlists    # All playlists
+spotify2tidal --podcasts     # Export podcasts to CSV
 
 # Sync a specific playlist
 spotify2tidal -p <playlist_id_or_uri>
+```
+
+### Tidal → Spotify
+
+```bash
+# Sync everything from Tidal to Spotify
+spotify2tidal --to-spotify --all
+
+# Sync specific categories
+spotify2tidal --to-spotify --favorites   # Tidal favorites → Spotify liked songs
+spotify2tidal --to-spotify --albums      # Tidal albums → Spotify library
+spotify2tidal --to-spotify --artists     # Tidal follows → Spotify follows
+```
+
+### Library Management
+
+```bash
+# Show library status on both platforms
+spotify2tidal --status
+
+# Export current Tidal library to CSV
+spotify2tidal --export-tidal
 
 # Verbose output
 spotify2tidal --all -v

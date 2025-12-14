@@ -2,11 +2,14 @@
 Track matching utilities for comparing Spotify and Tidal tracks.
 """
 
+from __future__ import annotations
+
 import unicodedata
 from difflib import SequenceMatcher
-from typing import Set
+from typing import TYPE_CHECKING, Set
 
-import tidalapi
+if TYPE_CHECKING:
+    import tidalapi
 
 
 def normalize(s: str) -> str:
@@ -23,7 +26,7 @@ class TrackMatcher:
     """Smart track matching with multiple strategies."""
 
     @staticmethod
-    def isrc_match(tidal_track: tidalapi.Track, spotify_track: dict) -> bool:
+    def isrc_match(tidal_track: "tidalapi.Track", spotify_track: dict) -> bool:
         """Match by ISRC (International Standard Recording Code) - most reliable."""
         if "isrc" in spotify_track.get("external_ids", {}):
             return tidal_track.isrc == spotify_track["external_ids"]["isrc"]
@@ -31,7 +34,7 @@ class TrackMatcher:
 
     @staticmethod
     def duration_match(
-        tidal_track: tidalapi.Track, spotify_track: dict, tolerance: int = 2
+        tidal_track: "tidalapi.Track", spotify_track: dict, tolerance: int = 2
     ) -> bool:
         """Check if durations match within tolerance (seconds)."""
         tidal_duration = tidal_track.duration
@@ -39,7 +42,7 @@ class TrackMatcher:
         return abs(tidal_duration - spotify_duration) < tolerance
 
     @staticmethod
-    def name_match(tidal_track: tidalapi.Track, spotify_track: dict) -> bool:
+    def name_match(tidal_track: "tidalapi.Track", spotify_track: dict) -> bool:
         """Check if track names match, handling various edge cases."""
 
         def has_pattern(name: str, pattern: str) -> bool:
@@ -109,7 +112,7 @@ class TrackMatcher:
         )
 
     @classmethod
-    def match(cls, tidal_track: tidalapi.Track, spotify_track: dict) -> bool:
+    def match(cls, tidal_track: "tidalapi.Track", spotify_track: dict) -> bool:
         """Full match check using all strategies."""
         if not spotify_track.get("id"):
             return False

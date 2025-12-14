@@ -20,10 +20,16 @@ class MatchCache:
 
     def __init__(self, cache_file: Optional[str] = None):
         self._cache_file = Path(cache_file) if cache_file else None
+        # Forward mappings: Spotify ID -> Tidal ID
         self._track_matches: dict[str, int] = {}
         self._album_matches: dict[str, int] = {}
         self._artist_matches: dict[str, int] = {}
-        self._failures: dict[str, str] = {}  # spotify_id -> retry_after ISO string
+        # Reverse mappings: Tidal ID -> Spotify ID
+        self._reverse_track_matches: dict[int, str] = {}
+        self._reverse_album_matches: dict[int, str] = {}
+        self._reverse_artist_matches: dict[int, str] = {}
+        # Failures cache (works for both directions)
+        self._failures: dict[str, str] = {}  # id_key -> retry_after ISO string
 
         # Load from file if it exists
         if self._cache_file and self._cache_file.exists():
@@ -42,6 +48,19 @@ class MatchCache:
             self._album_matches = data.get("albums", {})
             self._artist_matches = data.get("artists", {})
             self._failures = data.get("failures", {})
+            # Load reverse mappings if present, otherwise build from forward
+            self._reverse_track_matches = {
+                int(k): v for k, v in data.get("reverse_tracks", {}).items()
+            }
+            self._reverse_album_matches = {
+                int(k): v for k, v in data.get("reverse_albums", {}).items()
+            }
+            self._reverse_artist_matches = {
+                int(k): v for k, v in data.get("reverse_artists", {}).items()
+            }
+            # Build reverse from forward if not present
+            if not self._reverse_track_matches:
+                self._build_reverse_cache()
         except (json.JSONDecodeError, OSError):
             # Invalid or unreadable file, start fresh
             pass
@@ -56,6 +75,15 @@ class MatchCache:
             "tracks": self._track_matches,
             "albums": self._album_matches,
             "artists": self._artist_matches,
+            "reverse_tracks": {
+                str(k): v for k, v in self._reverse_track_matches.items()
+            },
+            "reverse_albums": {
+                str(k): v for k, v in self._reverse_album_matches.items()
+            },
+            "reverse_artists": {
+                str(k): v for k, v in self._reverse_artist_matches.items()
+            },
             "failures": self._failures,
         }
 
@@ -67,8 +95,9 @@ class MatchCache:
         return self._track_matches.get(spotify_id)
 
     def cache_track_match(self, spotify_id: str, tidal_id: int):
-        """Cache a successful track match."""
+        """Cache a successful track match (both directions)."""
         self._track_matches[spotify_id] = tidal_id
+        self._reverse_track_matches[tidal_id] = spotify_id
         self._auto_save()
 
     def get_album_match(self, spotify_id: str) -> Optional[int]:
@@ -76,8 +105,9 @@ class MatchCache:
         return self._album_matches.get(spotify_id)
 
     def cache_album_match(self, spotify_id: str, tidal_id: int):
-        """Cache a successful album match."""
+        """Cache a successful album match (both directions)."""
         self._album_matches[spotify_id] = tidal_id
+        self._reverse_album_matches[tidal_id] = spotify_id
         self._auto_save()
 
     def get_artist_match(self, spotify_id: str) -> Optional[int]:
@@ -85,9 +115,53 @@ class MatchCache:
         return self._artist_matches.get(spotify_id)
 
     def cache_artist_match(self, spotify_id: str, tidal_id: int):
-        """Cache a successful artist match."""
+        """Cache a successful artist match (both directions)."""
+        self._artist_matches[spotify_id] = tidal_id
+        self._reverse_artist_matches[tidal_id] = spotify_id
+        self._auto_save()
+
+    # =========================================================================
+    # Reverse lookups (Tidal -> Spotify)
+    # =========================================================================
+
+    def get_spotify_track_match(self, tidal_id: int) -> Optional[str]:
+        """Get cached Spotify track ID for a Tidal track."""
+        return self._reverse_track_matches.get(tidal_id)
+
+    def cache_spotify_track_match(self, tidal_id: int, spotify_id: str):
+        """Cache a successful Tidal->Spotify track match."""
+        self._reverse_track_matches[tidal_id] = spotify_id
+        self._track_matches[spotify_id] = tidal_id
+        self._auto_save()
+
+    def get_spotify_album_match(self, tidal_id: int) -> Optional[str]:
+        """Get cached Spotify album ID for a Tidal album."""
+        return self._reverse_album_matches.get(tidal_id)
+
+    def cache_spotify_album_match(self, tidal_id: int, spotify_id: str):
+        """Cache a successful Tidal->Spotify album match."""
+        self._reverse_album_matches[tidal_id] = spotify_id
+        self._album_matches[spotify_id] = tidal_id
+        self._auto_save()
+
+    def get_spotify_artist_match(self, tidal_id: int) -> Optional[str]:
+        """Get cached Spotify artist ID for a Tidal artist."""
+        return self._reverse_artist_matches.get(tidal_id)
+
+    def cache_spotify_artist_match(self, tidal_id: int, spotify_id: str):
+        """Cache a successful Tidal->Spotify artist match."""
+        self._reverse_artist_matches[tidal_id] = spotify_id
         self._artist_matches[spotify_id] = tidal_id
         self._auto_save()
+
+    def _build_reverse_cache(self):
+        """Build reverse mappings from forward mappings."""
+        for spotify_id, tidal_id in self._track_matches.items():
+            self._reverse_track_matches[tidal_id] = spotify_id
+        for spotify_id, tidal_id in self._album_matches.items():
+            self._reverse_album_matches[tidal_id] = spotify_id
+        for spotify_id, tidal_id in self._artist_matches.items():
+            self._reverse_artist_matches[tidal_id] = spotify_id
 
     def has_recent_failure(self, spotify_id: str, days: int = 7) -> bool:
         """Check if we've recently failed to find this item."""
@@ -136,6 +210,9 @@ class MatchCache:
         self._track_matches.clear()
         self._album_matches.clear()
         self._artist_matches.clear()
+        self._reverse_track_matches.clear()
+        self._reverse_album_matches.clear()
+        self._reverse_artist_matches.clear()
         self._failures.clear()
         self._auto_save()
 
@@ -145,6 +222,7 @@ class MatchCache:
             "cached_track_matches": len(self._track_matches),
             "cached_album_matches": len(self._album_matches),
             "cached_artist_matches": len(self._artist_matches),
+            "cached_reverse_track_matches": len(self._reverse_track_matches),
             "cached_failures": len(self._failures),
         }
 

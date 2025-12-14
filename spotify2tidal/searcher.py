@@ -2,10 +2,15 @@
 Async Tidal search with smart matching and caching.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Optional
 
-import tidalapi
+try:
+    import tidalapi
+except ModuleNotFoundError:  # pragma: no cover
+    tidalapi = None  # type: ignore[assignment]
 
 from .cache import MatchCache
 from .matching import TrackMatcher, normalize, simplify
@@ -19,7 +24,7 @@ class TidalSearcher:
     """Async Tidal search with smart matching."""
 
     def __init__(
-        self, session: tidalapi.Session, cache: MatchCache, rate_limiter: RateLimiter
+        self, session: "tidalapi.Session", cache: MatchCache, rate_limiter: RateLimiter
     ):
         self.session = session
         self.cache = cache

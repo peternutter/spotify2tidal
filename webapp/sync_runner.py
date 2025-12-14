@@ -44,6 +44,7 @@ async def run_sync(
         "total": 0,
         "matched": 0,
         "not_found": 0,
+        "failed": 0,
         "cache_hits": 0,
         "phase": "searching",
     }
@@ -55,6 +56,7 @@ async def run_sync(
         phase: str = "processing",
         from_cache: bool = False,
         matched: bool = True,
+        failed: bool = False,
     ):
         """Handle progress events from the sync engine."""
         if event == "update":
@@ -63,10 +65,14 @@ async def run_sync(
             progress_state["phase"] = phase
             _update_progress_display()
         elif event == "item":
-            if matched:
-                progress_state["matched"] += 1
+            if failed:
+                progress_state.setdefault("failed", 0)
+                progress_state["failed"] += 1
             else:
-                progress_state["not_found"] += 1
+                if matched:
+                    progress_state["matched"] += 1
+                else:
+                    progress_state["not_found"] += 1
             if from_cache:
                 progress_state["cache_hits"] += 1
         elif event == "total":
@@ -195,10 +201,12 @@ async def run_sync(
             with col2:
                 st.metric("Not found", f"{progress_state['not_found']:,}")
             with col3:
-                st.metric(
-                    "Cache (track matches)",
-                    f"{cache_stats.get('cached_track_matches', 0):,}",
-                )
+                st.metric("Failed adds", f"{progress_state.get('failed', 0):,}")
+
+            # Secondary metric below the main summary row
+            st.caption(
+                f"Cache (track matches): {cache_stats.get('cached_track_matches', 0):,}"
+            )
 
         add_log("success", "Sync completed successfully!")
 
