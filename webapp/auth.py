@@ -4,29 +4,46 @@ Used by the web application for user login.
 """
 
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import streamlit as st
 
 from .state import add_log
 
 
-class _StreamlitSessionCacheHandler:
-    """
-    Spotipy cache handler that stores token info in Streamlit session_state.
+def _get_spotipy_cache_handler_base():
+    """Import Spotipy CacheHandler base class lazily.
 
-    This enables refresh tokens to work for long-running syncs without writing
-    anything to disk (safe for multi-user Streamlit hosting).
+    Spotipy asserts that cache_handler is a subclass of CacheHandler.
+    Importing lazily keeps import side-effects local to Spotify flows.
     """
+
+    try:
+        from spotipy.cache_handler import CacheHandler
+
+        return CacheHandler
+    except Exception:
+        return None
+
+
+_SpotipyCacheHandlerBase = _get_spotipy_cache_handler_base() or object
+
+
+class _StreamlitSessionCacheHandler(_SpotipyCacheHandlerBase):
+    """Spotipy cache handler backed by Streamlit session_state."""
 
     def __init__(self, key: str = "spotify_token_info"):
         self.key = key
 
-    def get_cached_token(self):
-        return st.session_state.get(self.key)
+    def get_cached_token(self) -> Optional[dict[str, Any]]:
+        token = st.session_state.get(self.key)
+        return token if isinstance(token, dict) else None
 
-    def save_token_to_cache(self, token_info):
+    def save_token_to_cache(self, token_info: dict[str, Any]) -> None:
         st.session_state[self.key] = token_info
+
+    def delete_cached_token(self) -> None:
+        st.session_state.pop(self.key, None)
 
 
 def _infer_local_streamlit_redirect_uri() -> str:

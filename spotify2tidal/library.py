@@ -15,6 +15,25 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def _sanitize_csv_cell(value):
+    """
+    Mitigate CSV/Excel formula injection.
+
+    If a cell begins with one of Excel's formula trigger characters, prefix with a
+    single quote so it is treated as literal text.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        return value
+
+    # Leading whitespace can still be interpreted by some spreadsheet apps.
+    stripped = value.lstrip()
+    if stripped and stripped[0] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
+
+
 def export_tracks(
     tracks: List[dict],
     export_dir: Optional[Path] = None,
@@ -48,12 +67,12 @@ def export_tracks(
 
         writer.writerow(
             [
-                track.get("id", ""),
-                track.get("name", ""),
-                artists,
-                album,
+                _sanitize_csv_cell(track.get("id", "")),
+                _sanitize_csv_cell(track.get("name", "")),
+                _sanitize_csv_cell(artists),
+                _sanitize_csv_cell(album),
                 track.get("duration_ms", 0),
-                isrc,
+                _sanitize_csv_cell(isrc),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -97,10 +116,10 @@ def export_albums(
 
         writer.writerow(
             [
-                album.get("id", ""),
-                album.get("name", ""),
-                artists,
-                album.get("release_date", ""),
+                _sanitize_csv_cell(album.get("id", "")),
+                _sanitize_csv_cell(album.get("name", "")),
+                _sanitize_csv_cell(artists),
+                _sanitize_csv_cell(album.get("release_date", "")),
                 album.get("total_tracks", 0),
                 datetime.datetime.now().isoformat(),
             ]
@@ -135,9 +154,9 @@ def export_artists(
 
         writer.writerow(
             [
-                artist.get("id", ""),
-                artist.get("name", ""),
-                genres,
+                _sanitize_csv_cell(artist.get("id", "")),
+                _sanitize_csv_cell(artist.get("name", "")),
+                _sanitize_csv_cell(genres),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -185,12 +204,12 @@ def export_podcasts(
 
         writer.writerow(
             [
-                show.get("id", ""),
-                show.get("name", ""),
-                show.get("publisher", ""),
-                description,
+                _sanitize_csv_cell(show.get("id", "")),
+                _sanitize_csv_cell(show.get("name", "")),
+                _sanitize_csv_cell(show.get("publisher", "")),
+                _sanitize_csv_cell(description),
                 show.get("total_episodes", 0),
-                url,
+                _sanitize_csv_cell(url),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -235,12 +254,12 @@ def export_not_found_tracks(
 
         writer.writerow(
             [
-                track.get("id", ""),
-                track.get("name", ""),
-                artists,
-                album,
-                isrc,
-                url,
+                _sanitize_csv_cell(track.get("id", "")),
+                _sanitize_csv_cell(track.get("name", "")),
+                _sanitize_csv_cell(artists),
+                _sanitize_csv_cell(album),
+                _sanitize_csv_cell(isrc),
+                _sanitize_csv_cell(url),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -283,11 +302,11 @@ def export_not_found_albums(
 
         writer.writerow(
             [
-                album.get("id", ""),
-                album.get("name", ""),
-                artists,
-                album.get("release_date", ""),
-                url,
+                _sanitize_csv_cell(album.get("id", "")),
+                _sanitize_csv_cell(album.get("name", "")),
+                _sanitize_csv_cell(artists),
+                _sanitize_csv_cell(album.get("release_date", "")),
+                _sanitize_csv_cell(url),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -319,9 +338,9 @@ def export_not_found_artists(
 
         writer.writerow(
             [
-                artist.get("id", ""),
-                artist.get("name", ""),
-                url,
+                _sanitize_csv_cell(artist.get("id", "")),
+                _sanitize_csv_cell(artist.get("name", "")),
+                _sanitize_csv_cell(url),
                 datetime.datetime.now().isoformat(),
             ]
         )
@@ -374,11 +393,11 @@ def export_tidal_tracks(
             writer.writerow(
                 [
                     track.id,
-                    track.name or "",
-                    artists,
-                    album_name,
+                    _sanitize_csv_cell(track.name or ""),
+                    _sanitize_csv_cell(artists),
+                    _sanitize_csv_cell(album_name),
                     track.duration or 0,
-                    isrc,
+                    _sanitize_csv_cell(isrc),
                     datetime.datetime.now().isoformat(),
                 ]
             )
@@ -419,9 +438,9 @@ def export_tidal_albums(
             writer.writerow(
                 [
                     album.id,
-                    album.name or "",
-                    artists,
-                    release_date,
+                    _sanitize_csv_cell(album.name or ""),
+                    _sanitize_csv_cell(artists),
+                    _sanitize_csv_cell(release_date),
                     album.num_tracks or 0,
                     datetime.datetime.now().isoformat(),
                 ]
@@ -458,7 +477,7 @@ def export_tidal_artists(
             writer.writerow(
                 [
                     artist.id,
-                    artist.name or "",
+                    _sanitize_csv_cell(artist.name or ""),
                     datetime.datetime.now().isoformat(),
                 ]
             )

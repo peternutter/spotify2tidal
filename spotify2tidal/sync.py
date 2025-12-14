@@ -36,12 +36,13 @@ class SyncEngine:
         library_dir: str = "./library",
         logger: Optional["SyncLogger"] = None,
         cache: Optional[MatchCache] = None,
+        rate_limiter: Optional[RateLimiter] = None,
         progress_callback=None,
     ):
         self.spotify = spotify
         self.tidal = tidal
         self.cache = cache or MatchCache()
-        self.rate_limiter = RateLimiter(max_concurrent, rate_limit)
+        self.rate_limiter = rate_limiter or RateLimiter(max_concurrent, rate_limit)
         self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
         self.library = LibraryExporter(library_dir)
         self._logger = logger
@@ -312,17 +313,22 @@ class SyncEngine:
 
                 tidal_id = await self.searcher.search_album(album_data)
                 if tidal_id:
-                    self._report_progress(
-                        event="item", matched=True, from_cache=from_cache
-                    )
                     if tidal_id in existing_album_ids:
                         skipped += 1
+                        # Count duplicates as matched for progress accounting
+                        self._report_progress(
+                            event="item", matched=True, from_cache=from_cache
+                        )
                         continue  # Already in Tidal favorites
                     try:
                         self.tidal.user.favorites.add_album(tidal_id)
                         added += 1
                     except Exception as e:
                         logger.warning(f"Failed to add album: {e}")
+                    # Count successful matches (added or already-present handled above)
+                    self._report_progress(
+                        event="item", matched=True, from_cache=from_cache
+                    )
                 else:
                     not_found += 1
                     self._report_progress(event="item", matched=False)
@@ -381,17 +387,22 @@ class SyncEngine:
 
                 tidal_id = await self.searcher.search_artist(artist)
                 if tidal_id:
-                    self._report_progress(
-                        event="item", matched=True, from_cache=from_cache
-                    )
                     if tidal_id in existing_artist_ids:
                         skipped += 1
+                        # Count duplicates as matched for progress accounting
+                        self._report_progress(
+                            event="item", matched=True, from_cache=from_cache
+                        )
                         continue  # Already in Tidal favorites
                     try:
                         self.tidal.user.favorites.add_artist(tidal_id)
                         added += 1
                     except Exception as e:
                         logger.warning(f"Failed to add artist: {e}")
+                    # Count successful matches (added or already-present handled above)
+                    self._report_progress(
+                        event="item", matched=True, from_cache=from_cache
+                    )
                 else:
                     not_found += 1
                     self._report_progress(event="item", matched=False)

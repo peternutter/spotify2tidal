@@ -3,6 +3,9 @@ Session state management for the web application.
 Centralizes all session state initialization and logging.
 """
 
+import asyncio
+import threading
+import time
 from datetime import datetime
 
 import streamlit as st
@@ -35,6 +38,68 @@ def _parse_float(value, default: float) -> float:
         return default
 
 
+class GlobalThrottle:
+    """
+    Cross-session throttle for Streamlit Cloud.
+
+    Uses threading primitives so it is safe even if Streamlit creates multiple event
+    loops over time (e.g. via asyncio.run). Provides a RateLimiter-like interface:
+    - async acquire()
+    - release()
+    - start()/stop() no-ops
+    """
+
+    def __init__(self, max_concurrent: int, rate_per_second: float):
+        self._semaphore = threading.BoundedSemaphore(max(1, int(max_concurrent)))
+        self._rate = float(rate_per_second) if rate_per_second else 0.0
+        self._lock = threading.Lock()
+        self._next_allowed: float = 0.0  # time.monotonic() seconds
+
+    def start(self):
+        """Backward-compatible no-op."""
+        return
+
+    def stop(self):
+        """Backward-compatible no-op."""
+        return
+
+    async def acquire(self):
+        """Acquire a global concurrency slot and pace requests across all sessions."""
+        # Concurrency gate (thread-safe, loop-agnostic)
+        await asyncio.to_thread(self._semaphore.acquire)
+
+        # Optional pacing gate
+        if self._rate <= 0:
+            return
+
+        interval = 1.0 / self._rate
+        with self._lock:
+            now = time.monotonic()
+            wait_for = max(0.0, self._next_allowed - now)
+            self._next_allowed = max(now, self._next_allowed) + interval
+
+        if wait_for > 0:
+            await asyncio.sleep(wait_for)
+
+    def release(self):
+        """Release a previously acquired global concurrency slot."""
+        try:
+            self._semaphore.release()
+        except ValueError:
+            # Shouldn't happen, but don't crash if release is mismatched.
+            pass
+
+
+@st.cache_resource(show_spinner=False)
+def get_global_throttle(max_concurrent: int, rate_limit: float) -> GlobalThrottle:
+    """
+    Get a single global throttle shared across all sessions in this Streamlit process.
+
+    NOTE: This is per Streamlit worker process (good enough for Streamlit Cloud).
+    """
+    return GlobalThrottle(max_concurrent=max_concurrent, rate_per_second=rate_limit)
+
+
 def init_session_state():
     """Initialize all session state variables with defaults."""
     # Conservative defaults for public multi-user hosting; override via secrets/env.
@@ -65,6 +130,10 @@ def init_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+    # Warm the global throttle so it exists before any sync begins.
+    # This is a no-op on subsequent runs.
+    get_global_throttle(max_concurrent, rate_limit)
 
 
 def add_log(level: str, message: str):

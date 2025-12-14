@@ -9,11 +9,11 @@ from spotify2tidal.cache import MatchCache
 from spotify2tidal.logging_utils import SyncLogger
 from spotify2tidal.sync import SyncEngine
 
-from .state import add_log
+from .state import add_log, get_global_throttle
 
 
 async def run_sync(
-    sync_options: dict, status_placeholder, progress_bar, details_placeholder
+    sync_options: dict, status_placeholder, progress_bar, details_placeholder=None
 ) -> dict:
     """
     Run the sync operation with progress updates.
@@ -27,6 +27,8 @@ async def run_sync(
     Returns:
         Dict with sync results per category
     """
+    if details_placeholder is None:
+        details_placeholder = st.empty()
     # Create logger that writes to session state
     logger = SyncLogger(mode="web", session_state=st.session_state)
 
@@ -87,6 +89,12 @@ async def run_sync(
                 progress_frac, text=f"{phase_emoji} {current:,} / {total:,}"
             )
 
+    # Cross-session throttle (shared within the Streamlit worker process)
+    global_throttle = get_global_throttle(
+        st.session_state.get("max_concurrent", 5),
+        st.session_state.get("rate_limit", 5.0),
+    )
+
     engine = SyncEngine(
         st.session_state.spotify_client,
         st.session_state.tidal_session,
@@ -95,6 +103,7 @@ async def run_sync(
         library_dir=None,  # In-memory mode
         logger=logger,
         cache=cache,
+        rate_limiter=global_throttle,
         progress_callback=progress_callback,
     )
 
