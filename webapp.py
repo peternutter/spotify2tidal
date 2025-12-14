@@ -16,7 +16,6 @@ from webapp.components import (
     render_activity_log,
     render_connection_status,
     render_file_upload,
-    render_performance_settings,
     render_spotify_connection,
     render_sync_results,
     render_tidal_connection,
@@ -51,13 +50,14 @@ def render_sidebar():
         render_connection_status()
         st.divider()
 
-        render_performance_settings()
-        st.divider()
-
         render_activity_log()
 
-        st.caption("v1.2.0 • Secure & Private")
-        st.caption("No data is stored on our servers.")
+        st.caption("v1.2.0")
+        st.caption(
+            "Your data is processed by the server running this app for the duration of "
+            "your session. The app does not intentionally persist your library or "
+            "tokens to disk. For maximum privacy, deploy privately."
+        )
 
 
 def render_main():

@@ -2,6 +2,7 @@
 Reusable UI components for the web application.
 """
 
+import html
 import io
 import json
 import zipfile
@@ -37,10 +38,48 @@ def render_file_upload():
 
         if uploaded_file is not None:
             try:
-                # Read the zip file
-                zip_buffer = io.BytesIO(uploaded_file.read())
+                # Safety limits (avoid zip bombs / runaway memory)
+                max_zip_bytes = 20 * 1024 * 1024  # 20 MB
+                max_entries = 50
+                max_uncompressed_bytes = 50 * 1024 * 1024  # 50 MB total extracted
+
+                uploaded_size = getattr(uploaded_file, "size", None)
+                if uploaded_size is not None and uploaded_size > max_zip_bytes:
+                    st.error(
+                        f"❌ File too large ({uploaded_size / 1024 / 1024:.1f} MB). "
+                        f"Max allowed is {max_zip_bytes / 1024 / 1024:.0f} MB."
+                    )
+                    return
+
+                raw = uploaded_file.getvalue()
+                if len(raw) > max_zip_bytes:
+                    st.error(
+                        f"❌ File too large ({len(raw) / 1024 / 1024:.1f} MB). "
+                        f"Max allowed is {max_zip_bytes / 1024 / 1024:.0f} MB."
+                    )
+                    return
+
+                zip_buffer = io.BytesIO(raw)
                 with zipfile.ZipFile(zip_buffer, "r") as zf:
-                    file_list = zf.namelist()
+                    infos = zf.infolist()
+                    if len(infos) > max_entries:
+                        st.error(
+                            f"❌ Archive contains too many files ({len(infos)}). "
+                            f"Max allowed is {max_entries}."
+                        )
+                        return
+
+                    total_uncompressed = sum(i.file_size for i in infos)
+                    if total_uncompressed > max_uncompressed_bytes:
+                        st.error(
+                            f"❌ Archive is too large when extracted "
+                            f"({total_uncompressed / 1024 / 1024:.1f} MB). "
+                            f"Max allowed is "
+                            f"{max_uncompressed_bytes / 1024 / 1024:.0f} MB."
+                        )
+                        return
+
+                    file_list = [i.filename for i in infos]
                     st.success(f"✅ Loaded {len(file_list)} files from archive")
 
                     # Show contents
@@ -51,6 +90,21 @@ def render_file_upload():
                     # Parse and load data into session state
                     loaded_data = {}
                     for filename in file_list:
+                        # Only allow flat files, no directories / traversal.
+                        if (
+                            "/" in filename
+                            or "\\" in filename
+                            or filename.startswith(("/", "\\"))
+                            or ".." in filename
+                        ):
+                            raise ValueError("Archive contains unsafe file paths.")
+
+                        lower = filename.lower()
+                        if not (lower.endswith(".csv") or lower.endswith(".json")):
+                            raise ValueError(
+                                f"Archive contains unsupported file type: {filename}"
+                            )
+
                         if filename.endswith(".csv"):
                             content = zf.read(filename).decode("utf-8")
                             loaded_data[filename] = content
@@ -113,10 +167,11 @@ def render_activity_log():
         for entry in reversed(st.session_state.sync_logs[-30:]):
             time_str = entry.timestamp.strftime("%H:%M:%S")
             level_class = f"log-{entry.level.name_str.lower()}"
+            safe_message = html.escape(str(entry.message))
             log_entries.append(
                 f'<div class="log-entry">'
                 f'<span class="log-time">{time_str}</span>'
-                f'<span class="{level_class}">{entry.message}</span>'
+                f'<span class="{level_class}">{safe_message}</span>'
                 f"</div>"
             )
 
@@ -125,7 +180,7 @@ def render_activity_log():
 
         # Download button only (removed Clear button for simplicity)
         log_text = "\n".join(
-            f"[{e.timestamp.strftime('%H:%M:%S')}] " f"{e.level.name_str}: {e.message}"
+            f"[{e.timestamp.strftime('%H:%M:%S')}] {e.level.name_str}: {e.message}"
             for e in st.session_state.sync_logs
         )
         st.download_button(
@@ -142,10 +197,10 @@ def render_troubleshooting():
     """Render troubleshooting panel if there's an error."""
     if st.session_state.last_error:
         with st.expander("Troubleshooting", expanded=True):
-            st.markdown(
-                f'<div class="error-card">{st.session_state.last_error}</div>',
-                unsafe_allow_html=True,
-            )
+            # Render as Markdown
+            # (HTML is escaped by default unless unsafe_allow_html=True)
+            st.error("An error occurred.")
+            st.markdown(st.session_state.last_error)
             if st.button("✕ Dismiss", key="dismiss_error"):
                 st.session_state.last_error = None
                 st.rerun()
@@ -155,7 +210,7 @@ def render_spotify_connection():
     """Render Spotify connection UI in sidebar."""
     st.subheader("Spotify")
     if st.session_state.spotify_connected:
-        username = st.session_state.get("spotify_user", "Unknown")
+        username = html.escape(str(st.session_state.get("spotify_user", "Unknown")))
         st.markdown(
             f"""<div class="connection-card connected">
                 <span class="status-dot status-connected"></span>
@@ -202,8 +257,7 @@ def render_tidal_connection():
                 st.rerun()
             else:
                 st.warning(
-                    "Login not detected yet. "
-                    "Please complete the login and try again."
+                    "Login not detected yet. Please complete the login and try again."
                 )
     else:
         if st.button("Connect Tidal", key="tidal_connect", use_container_width=True):
@@ -230,26 +284,6 @@ def render_connection_status():
             f'<div class="warning-card">⚠️ Connect: {", ".join(missing)}</div>',
             unsafe_allow_html=True,
         )
-
-
-def render_performance_settings():
-    """Render performance settings sliders."""
-    st.subheader("Performance")
-    st.session_state.max_concurrent = st.slider(
-        "Concurrent requests",
-        min_value=1,
-        max_value=50,
-        value=st.session_state.get("max_concurrent", 10),
-        help="Parallel API requests. Higher = faster but may hit rate limits.",
-    )
-    st.session_state.rate_limit = st.slider(
-        "Requests per second",
-        min_value=1,
-        max_value=50,
-        value=st.session_state.get("rate_limit", 10),
-        help="Max requests per second. Higher = faster but may hit rate limits.",
-    )
-    st.caption("⚠️ High values may cause API errors")
 
 
 def render_sync_results(results: dict):

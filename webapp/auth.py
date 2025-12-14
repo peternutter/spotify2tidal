@@ -11,6 +11,24 @@ import streamlit as st
 from .state import add_log
 
 
+class _StreamlitSessionCacheHandler:
+    """
+    Spotipy cache handler that stores token info in Streamlit session_state.
+
+    This enables refresh tokens to work for long-running syncs without writing
+    anything to disk (safe for multi-user Streamlit hosting).
+    """
+
+    def __init__(self, key: str = "spotify_token_info"):
+        self.key = key
+
+    def get_cached_token(self):
+        return st.session_state.get(self.key)
+
+    def save_token_to_cache(self, token_info):
+        st.session_state[self.key] = token_info
+
+
 def _infer_local_streamlit_redirect_uri() -> str:
     """
     Infer a reasonable redirect URI for local Streamlit runs.
@@ -106,7 +124,7 @@ def get_spotify_auth_manager():
             "user-read-playback-position"
         ),
         open_browser=False,
-        cache_handler=None,
+        cache_handler=_StreamlitSessionCacheHandler(),
     )
 
 
@@ -130,18 +148,16 @@ def handle_spotify_callback() -> bool:
         if auth_manager:
             try:
                 add_log("info", "Processing Spotify login...")
-                token_info = auth_manager.get_access_token(code)
+                # This will also persist token_info into session_state
+                # via cache_handler.
+                token_info = auth_manager.get_access_token(code, check_cache=False)
 
-                if isinstance(token_info, dict):
-                    access_token = token_info["access_token"]
-                else:
-                    access_token = token_info
-
-                spotify = spotipy.Spotify(auth=access_token)
+                spotify = spotipy.Spotify(auth_manager=auth_manager)
                 user = spotify.current_user()
 
                 st.session_state.spotify_client = spotify
                 st.session_state.spotify_token_info = token_info
+                st.session_state.spotify_auth_manager = auth_manager
                 st.session_state.spotify_connected = True
                 st.session_state.spotify_user = user["display_name"] or user["id"]
 
@@ -187,7 +203,7 @@ def start_tidal_login():
     st.session_state.tidal_login_url = url
     st.session_state.tidal_device_code = login.user_code
     st.session_state.tidal_future = future
-    add_log("info", f"Tidal login URL generated. Device code: {login.user_code}")
+    add_log("info", "Tidal login URL generated.")
 
 
 def check_tidal_login() -> bool:

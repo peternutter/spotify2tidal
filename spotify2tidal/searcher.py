@@ -2,7 +2,6 @@
 Async Tidal search with smart matching and caching.
 """
 
-import asyncio
 import logging
 from typing import Optional
 
@@ -11,6 +10,7 @@ import tidalapi
 from .cache import MatchCache
 from .matching import TrackMatcher, normalize, simplify
 from .rate_limiter import RateLimiter
+from .retry_utils import retry_async_call
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class TidalSearcher:
 
         await self.rate_limiter.acquire()
         try:
-            results = await asyncio.to_thread(
+            results = await retry_async_call(
                 self.session.search, query, models=[tidalapi.album.Album]
             )
 
@@ -80,13 +80,15 @@ class TidalSearcher:
                 if tidal_album.num_tracks < track_num:
                     continue
 
-                tracks = await asyncio.to_thread(tidal_album.tracks)
+                tracks = await retry_async_call(tidal_album.tracks)
                 if len(tracks) >= track_num:
                     track = tracks[track_num - 1]
                     if track.available and TrackMatcher.match(track, spotify_track):
                         return track.id
         except Exception as e:
             logger.warning(f"Album search failed: {e}")
+        finally:
+            self.rate_limiter.release()
 
         return None
 
@@ -100,7 +102,7 @@ class TidalSearcher:
 
         await self.rate_limiter.acquire()
         try:
-            results = await asyncio.to_thread(
+            results = await retry_async_call(
                 self.session.search, query, models=[tidalapi.media.Track]
             )
 
@@ -109,6 +111,8 @@ class TidalSearcher:
                     return track.id
         except Exception as e:
             logger.warning(f"Track search failed: {e}")
+        finally:
+            self.rate_limiter.release()
 
         return None
 
@@ -131,7 +135,7 @@ class TidalSearcher:
 
         await self.rate_limiter.acquire()
         try:
-            results = await asyncio.to_thread(
+            results = await retry_async_call(
                 self.session.search, query, models=[tidalapi.album.Album]
             )
 
@@ -142,6 +146,8 @@ class TidalSearcher:
                     return album.id
         except Exception as e:
             logger.warning(f"Album search failed: {e}")
+        finally:
+            self.rate_limiter.release()
 
         return None
 
@@ -159,7 +165,7 @@ class TidalSearcher:
 
         await self.rate_limiter.acquire()
         try:
-            results = await asyncio.to_thread(
+            results = await retry_async_call(
                 self.session.search, name, models=[tidalapi.artist.Artist]
             )
 
@@ -174,5 +180,7 @@ class TidalSearcher:
                     return artist.id
         except Exception as e:
             logger.warning(f"Artist search failed: {e}")
+        finally:
+            self.rate_limiter.release()
 
         return None

@@ -179,39 +179,17 @@ async def run_sync(
 
         # Final stats summary
         cache_stats = cache.get_stats()
-        stats_style = (
-            "background: rgba(29,185,84,0.1); border: 1px solid #1DB954; "
-            "border-radius: 10px; padding: 1rem; margin-top: 1rem;"
-        )
-        flex_style = "display: flex; justify-content: space-around; text-align: center;"
-        final_html = f"""
-        <div style="{stats_style}">
-            <div style="{flex_style}">
-                <div>
-                    <div style="font-size: 1.5rem;">✅</div>
-                    <div style="color: #888; font-size: 0.8rem;">MATCHED</div>
-                    <div style="font-size: 1.2rem; font-weight: bold;">
-                        {progress_state['matched']:,}
-                    </div>
-                </div>
-                <div>
-                    <div style="font-size: 1.5rem;">❌</div>
-                    <div style="color: #888; font-size: 0.8rem;">NOT FOUND</div>
-                    <div style="font-size: 1.2rem; font-weight: bold;">
-                        {progress_state['not_found']:,}
-                    </div>
-                </div>
-                <div>
-                    <div style="font-size: 1.5rem;">💾</div>
-                    <div style="color: #888; font-size: 0.8rem;">CACHE</div>
-                    <div style="font-size: 1.2rem; font-weight: bold;">
-                        {cache_stats.get('tracks', 0):,}
-                    </div>
-                </div>
-            </div>
-        </div>
-        """
-        details_placeholder.markdown(final_html, unsafe_allow_html=True)
+        with details_placeholder.container():
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Matched", f"{progress_state['matched']:,}")
+            with col2:
+                st.metric("Not found", f"{progress_state['not_found']:,}")
+            with col3:
+                st.metric(
+                    "Cache (track matches)",
+                    f"{cache_stats.get('cached_track_matches', 0):,}",
+                )
 
         add_log("success", "Sync completed successfully!")
 
