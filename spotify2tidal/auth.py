@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 SPOTIFY_SCOPES = (
     "user-library-read "
+    "user-library-modify "  # For adding tracks/albums to library
     "playlist-read-private "
     "user-follow-read "
+    "user-follow-modify "  # For following artists
     "playlist-modify-private "
     "playlist-modify-public "
     "user-read-playback-position"  # Required for podcasts/shows

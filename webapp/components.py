@@ -5,6 +5,7 @@ Reusable UI components for the web application.
 import html
 import io
 import json
+import platform
 import zipfile
 from datetime import datetime
 
@@ -16,6 +17,62 @@ from .auth import (
     start_tidal_login,
 )
 from .state import add_log
+
+
+def _safe_debug_state() -> dict:
+    """Return a sanitized view of session_state suitable for sharing."""
+
+    # Never include tokens/sessions/clients in exported debug info.
+    allowlist = {
+        "spotify_connected",
+        "tidal_connected",
+        "sync_running",
+        "sync_started_at",
+        "sync_last_progress_at",
+        "max_concurrent",
+        "rate_limit",
+    }
+
+    out: dict = {}
+    for key in allowlist:
+        if key in st.session_state:
+            out[key] = st.session_state.get(key)
+
+    # Add a tiny summary of results (not the content).
+    results = st.session_state.get("sync_results")
+    if isinstance(results, dict):
+        out["sync_results_keys"] = sorted(results.keys())
+
+    # Add basic runtime metadata.
+    out["python"] = platform.python_version()
+    out["platform"] = platform.platform()
+    out["streamlit"] = getattr(st, "__version__", None)
+
+    return out
+
+
+def _build_debug_bundle_zip() -> bytes:
+    """Build a small zip with logs + error + traceback + sanitized state."""
+
+    # Log text (same format as Download Log)
+    log_text = "\n".join(
+        f"[{e.timestamp.strftime('%H:%M:%S')}] {e.level.name_str}: {e.message}"
+        for e in st.session_state.get("sync_logs", [])
+    )
+
+    last_error = st.session_state.get("last_error") or ""
+    last_traceback = st.session_state.get("last_traceback") or ""
+    debug_state = json.dumps(_safe_debug_state(), indent=2, default=str)
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("sync_log.txt", log_text)
+        zf.writestr("last_error.md", str(last_error))
+        zf.writestr("traceback.txt", str(last_traceback))
+        zf.writestr("debug_state.json", debug_state)
+
+    zip_buffer.seek(0)
+    return zip_buffer.getvalue()
 
 
 def render_file_upload():
@@ -192,6 +249,17 @@ def render_activity_log():
             use_container_width=True,
         )
 
+        # Debug bundle is useful even if the UI got into a weird state.
+        st.download_button(
+            "🧰 Download Debug Bundle",
+            data=_build_debug_bundle_zip(),
+            file_name=f"spotify2tidal_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+            mime="application/zip",
+            key="download_debug_bundle",
+            use_container_width=True,
+            help="Includes logs + error + traceback + sanitized app state (no tokens).",
+        )
+
 
 def render_troubleshooting():
     """Render troubleshooting panel if there's an error."""
@@ -201,8 +269,23 @@ def render_troubleshooting():
             # (HTML is escaped by default unless unsafe_allow_html=True)
             st.error("An error occurred.")
             st.markdown(st.session_state.last_error)
+
+            tb = st.session_state.get("last_traceback")
+            if tb:
+                with st.expander("Show traceback", expanded=False):
+                    st.code(tb, language="text")
+
+            st.download_button(
+                "🧰 Download Debug Bundle",
+                data=_build_debug_bundle_zip(),
+                file_name=f"spotify2tidal_debug_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                mime="application/zip",
+                key="download_debug_bundle_troubleshooting",
+                use_container_width=True,
+            )
             if st.button("✕ Dismiss", key="dismiss_error"):
                 st.session_state.last_error = None
+                st.session_state.last_traceback = None
                 st.rerun()
 
 

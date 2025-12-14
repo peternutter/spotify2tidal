@@ -123,6 +123,13 @@ Tips:
         action="store_true",
         help="Show library status and coverage on each platform",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit items processed per category (for debugging large libraries)",
+    )
 
     return parser
 
@@ -296,7 +303,11 @@ def main():
         library_dir=str(library_dir),
         logger=logger,
         cache=cache,
+        item_limit=args.limit,
     )
+
+    if args.limit:
+        logger.warning(f"⚠️  Debug mode: limiting to {args.limit} items per category")
 
     # Determine what to sync
     async def run_sync():

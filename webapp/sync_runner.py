@@ -3,6 +3,9 @@ Sync runner for the web application.
 Handles the async sync operation with progress updates.
 """
 
+import time
+import traceback
+
 import streamlit as st
 
 from spotify2tidal.cache import MatchCache
@@ -29,6 +32,10 @@ async def run_sync(
     """
     if details_placeholder is None:
         details_placeholder = st.empty()
+
+    item_limit = sync_options.get("item_limit")
+    if item_limit:
+        add_log("warning", f"⚠️  Test run enabled: limiting to {int(item_limit)} items")
     # Create logger that writes to session state
     logger = SyncLogger(mode="web", session_state=st.session_state)
 
@@ -60,6 +67,8 @@ async def run_sync(
     ):
         """Handle progress events from the sync engine."""
         if event == "update":
+            # Heartbeat for diagnosing interrupted reruns / stalls.
+            st.session_state.sync_last_progress_at = time.time()
             progress_state["current"] = current
             progress_state["total"] = total
             progress_state["phase"] = phase
@@ -111,6 +120,7 @@ async def run_sync(
         cache=cache,
         rate_limiter=global_throttle,
         progress_callback=progress_callback,
+        item_limit=int(item_limit) if item_limit else None,
     )
 
     results = {}
@@ -212,6 +222,7 @@ async def run_sync(
 
     except Exception as e:
         add_log("error", f"Sync failed: {e}")
+        st.session_state.last_traceback = traceback.format_exc()
         st.session_state.last_error = (
             f"**Sync Error**\n\n{e}\n\n"
             "Your progress has been cached. Try running sync again to resume."

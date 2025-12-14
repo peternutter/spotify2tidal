@@ -104,6 +104,20 @@ spotify2tidal --export-tidal
 spotify2tidal --all -v
 ```
 
+### Debugging Large Libraries
+
+```bash
+# Limit to 10 items per category for faster testing
+spotify2tidal --favorites --limit 10
+
+# Test albums with only 5 items
+spotify2tidal --albums --limit 5
+
+# Works with all sync modes
+spotify2tidal --all --limit 20
+spotify2tidal --to-spotify --favorites --limit 10
+```
+
 On first run, browsers open for Spotify and Tidal authentication.
 
 ## Incremental Sync

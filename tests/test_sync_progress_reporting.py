@@ -102,8 +102,8 @@ def test_sync_albums_progress_not_matched_when_add_fails(tmp_path, sample_album)
     async def _existing_album_ids():
         return set()
 
-    engine._get_spotify_saved_albums = _saved_albums  # type: ignore[assignment]
-    engine._get_all_tidal_favorite_album_ids = _existing_album_ids  # type: ignore[assignment]
+    engine.spotify_fetcher.get_saved_albums = _saved_albums  # type: ignore[assignment]
+    engine.tidal_fetcher.get_favorite_album_ids = _existing_album_ids  # type: ignore[assignment]
 
     added, not_found = asyncio.run(engine.sync_albums())
     assert added == 0
@@ -137,8 +137,8 @@ def test_sync_albums_progress_matched_when_already_exists(tmp_path, sample_album
     async def _existing_album_ids():
         return {123}
 
-    engine._get_spotify_saved_albums = _saved_albums  # type: ignore[assignment]
-    engine._get_all_tidal_favorite_album_ids = _existing_album_ids  # type: ignore[assignment]
+    engine.spotify_fetcher.get_saved_albums = _saved_albums  # type: ignore[assignment]
+    engine.tidal_fetcher.get_favorite_album_ids = _existing_album_ids  # type: ignore[assignment]
 
     added, not_found = asyncio.run(engine.sync_albums())
     assert added == 0
@@ -172,8 +172,8 @@ def test_sync_artists_progress_not_matched_when_add_fails(tmp_path, sample_artis
     async def _existing_artist_ids():
         return set()
 
-    engine._get_spotify_followed_artists = _followed_artists  # type: ignore[assignment]
-    engine._get_all_tidal_favorite_artist_ids = _existing_artist_ids  # type: ignore[assignment]
+    engine.spotify_fetcher.get_followed_artists = _followed_artists  # type: ignore[assignment]
+    engine.tidal_fetcher.get_favorite_artist_ids = _existing_artist_ids  # type: ignore[assignment]
 
     added, not_found = asyncio.run(engine.sync_artists())
     assert added == 0

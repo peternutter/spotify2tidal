@@ -122,7 +122,10 @@ def init_session_state():
         "sync_results": None,
         "sync_logs": [],
         "last_error": None,
+        "last_traceback": None,
         "export_files": {},
+        "sync_started_at": None,
+        "sync_last_progress_at": None,
         # Performance settings
         "max_concurrent": max_concurrent,
         "rate_limit": rate_limit,
