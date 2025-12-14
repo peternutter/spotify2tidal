@@ -130,6 +130,30 @@ class TidalFetcher:
 
         return all_ids
 
+    async def get_playlist_tracks(
+        self, playlist: tidalapi.Playlist, limit_total: Optional[int] = None
+    ) -> List[tidalapi.Track]:
+        """Get ALL tracks from a Tidal playlist with proper pagination (in order)."""
+        tracks: List[tidalapi.Track] = []
+        limit = 100
+        offset = 0
+
+        while True:
+            page = playlist.tracks(limit=limit, offset=offset)
+            if not page:
+                break
+
+            tracks.extend(page)
+
+            if limit_total and len(tracks) >= limit_total:
+                return tracks[:limit_total]
+
+            if len(page) < limit:
+                break
+            offset += limit
+
+        return tracks
+
     async def get_favorite_tracks(
         self, limit_total: Optional[int] = None
     ) -> List[tidalapi.Track]:

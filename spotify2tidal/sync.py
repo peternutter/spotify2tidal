@@ -511,9 +511,128 @@ class SyncEngine:
 
         return results
 
+    async def _get_spotify_playlist_track_ids(self, playlist_id: str) -> Set[str]:
+        """Get ALL Spotify track IDs already present in a playlist."""
+        existing: Set[str] = set()
+        try:
+            results = self.spotify.playlist_items(
+                playlist_id, fields="items(track(id,type)),next"
+            )
+            while True:
+                for item in results.get("items", []):
+                    track = item.get("track")
+                    if track and track.get("type") == "track" and track.get("id"):
+                        existing.add(track["id"])
+
+                if not results.get("next"):
+                    break
+                results = self.spotify.next(results)
+        except Exception as e:
+            logger.warning(f"Could not fetch Spotify playlist tracks for dedupe: {e}")
+        return existing
+
+    async def _find_or_create_spotify_playlist(self, name: str) -> str:
+        """Find a user-owned Spotify playlist by name, or create it."""
+        user = self.spotify.current_user()
+        user_id = user["id"]
+
+        results = self.spotify.current_user_playlists()
+        while True:
+            for playlist in results.get("items", []):
+                if (
+                    playlist.get("name") == name
+                    and playlist.get("owner", {}).get("id") == user_id
+                ):
+                    return playlist["id"]
+            if not results.get("next"):
+                break
+            results = self.spotify.next(results)
+
+        created = self.spotify.user_playlist_create(
+            user=user_id, name=name, public=False, description=""
+        )
+        return created["id"]
+
+    async def sync_tidal_playlist_to_spotify(self, tidal_playlist) -> Tuple[int, int]:
+        """Sync a single Tidal playlist to Spotify (add-only, preserves source order)."""
+        from .spotify_searcher import SpotifySearcher
+
+        self.rate_limiter.start()
+        try:
+            self._report_progress(event="phase", phase="fetching")
+
+            playlist_name = getattr(tidal_playlist, "name", None) or "Tidal Playlist"
+            spotify_playlist_id = await self._find_or_create_spotify_playlist(
+                playlist_name
+            )
+
+            # Fetch tracks from Tidal playlist in order
+            tidal_tracks = await self.tidal_fetcher.get_playlist_tracks(tidal_playlist)
+            tidal_tracks = self._apply_limit(tidal_tracks)
+            if not tidal_tracks:
+                return 0, 0
+
+            existing_spotify_ids = await self._get_spotify_playlist_track_ids(
+                spotify_playlist_id
+            )
+
+            searcher = SpotifySearcher(self.spotify, self.cache, self.rate_limiter)
+
+            spotify_ids_in_order: List[str] = []
+            not_found = 0
+
+            for tidal_track in self._progress_iter(
+                tidal_tracks, f"Searching: {playlist_name[:20]}", phase="searching"
+            ):
+                spotify_id = await searcher.search_track(tidal_track)
+                if not spotify_id:
+                    not_found += 1
+                    self._report_progress(event="item", matched=False)
+                    continue
+
+                self._report_progress(event="item", matched=True)
+                spotify_ids_in_order.append(spotify_id)
+
+            # Add only new tracks, preserving Tidal order for additions.
+            to_add = [
+                sid for sid in spotify_ids_in_order if sid not in existing_spotify_ids
+            ]
+
+            if not to_add:
+                return 0, not_found
+
+            self._report_progress(event="phase", phase="adding")
+
+            chunk_size = 100
+            chunks = [
+                to_add[i : i + chunk_size] for i in range(0, len(to_add), chunk_size)
+            ]
+            for chunk in self._progress_iter(
+                chunks, "Adding to Spotify playlist", phase="adding"
+            ):
+                self.spotify.playlist_add_items(spotify_playlist_id, chunk)
+
+            return len(to_add), not_found
+        finally:
+            self.rate_limiter.stop()
+
     # =========================================================================
     # Reverse Sync: Tidal -> Spotify
     # =========================================================================
+
+    async def sync_all_playlists_to_spotify(self) -> dict:
+        """Sync all user playlists from Tidal to Spotify (create if missing, add-only)."""
+        playlists = self.tidal.user.playlists()
+        items = self._apply_limit(list(playlists))
+
+        results = {}
+        for playlist in items:
+            name = getattr(playlist, "name", None) or "Tidal Playlist"
+            logger.info(f"Syncing Tidal playlist to Spotify: {name}")
+            added, not_found = await self.sync_tidal_playlist_to_spotify(playlist)
+            results[name] = {"added": added, "not_found": not_found}
+
+        return results
 
     async def sync_favorites_to_spotify(self) -> Tuple[int, int]:
         """

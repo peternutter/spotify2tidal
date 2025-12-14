@@ -40,6 +40,7 @@ Examples (Spotify → Tidal):
   spotify2tidal --all               # Sync everything to Tidal
 
 Examples (Tidal → Spotify):
+    spotify2tidal --to-spotify --playlists  # Sync all playlists to Spotify
   spotify2tidal --to-spotify --favorites   # Sync Tidal favorites to Spotify
   spotify2tidal --to-spotify --albums      # Sync Tidal albums to Spotify
   spotify2tidal --to-spotify --artists     # Sync Tidal artists to Spotify
@@ -329,6 +330,9 @@ def main():
         # Reverse sync: Tidal -> Spotify
         if args.to_spotify:
             if args.sync_all:
+                logger.progress("Syncing Tidal playlists to Spotify...")
+                results["playlists"] = await engine.sync_all_playlists_to_spotify()
+
                 logger.progress("Syncing Tidal favorites to Spotify...")
                 added, nf = await engine.sync_favorites_to_spotify()
                 results["favorites"] = {"added": added, "not_found": nf}
@@ -346,6 +350,10 @@ def main():
                 added, not_found = await engine.sync_favorites_to_spotify()
                 results["favorites"] = {"added": added, "not_found": not_found}
 
+            elif args.playlists:
+                logger.progress("Syncing Tidal playlists to Spotify...")
+                results["playlists"] = await engine.sync_all_playlists_to_spotify()
+
             elif args.albums:
                 logger.progress("Syncing Tidal albums to Spotify...")
                 added, not_found = await engine.sync_albums_to_spotify()
@@ -359,7 +367,7 @@ def main():
             else:
                 logger.warning(
                     "Use --to-spotify with --favorites, --albums, "
-                    "--artists, or --all"
+                    "--artists, --playlists, or --all"
                 )
                 return {}
 

@@ -1,6 +1,6 @@
 # spotify2tidal
 
-Sync your music library between Spotify and Tidal — **bidirectionally**.
+Sync your music library between Spotify and Tidal -- **bidirectionally**.
 
 This project combines and improves upon two open-source scripts:
 
@@ -9,15 +9,15 @@ This project combines and improves upon two open-source scripts:
 
 ## Features
 
-- **Bidirectional sync** — Spotify → Tidal and Tidal → Spotify
+- **Bidirectional sync** -- Spotify → Tidal and Tidal → Spotify
 - **Sync playlists** with incremental updates (only adds new tracks)
 - **Sync favorites** (liked tracks), albums, and followed artists
 - **Export podcasts** to CSV (Tidal doesn't support podcasts)
 - **Smart matching** using ISRC, duration, name, and artist
-- **Order preservation** — oldest items appear at bottom (matching Spotify)
-- **Incremental sync** — skips items already in your library
-- **Caching** — persists track mappings in JSON for fast re-runs
-- **Library status** — see what's on each platform and what's missing
+- **Order preservation** -- oldest items appear at bottom (matching Spotify)
+- **Incremental sync** -- skips items already in your library
+- **Caching** -- persists track mappings in JSON for fast re-runs
+- **Library status** -- see what's on each platform and what's missing
 
 ## Web App
 
@@ -34,7 +34,7 @@ Features:
 - Download exported CSVs and cache backup
 - Upload cache to restore sync progress
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for cloud deployment.
+See <DEPLOYMENT.md> for cloud deployment.
 
 ## Installation
 
@@ -56,8 +56,10 @@ pip install -e .
 
 1. Create a Spotify app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
 2. Add a Redirect URI depending on how you run the project:
-   - CLI: `http://127.0.0.1:8888/callback`
-   - Streamlit webapp (local): `http://localhost:8501/`
+
+  - CLI: `http://127.0.0.1:8888/callback`
+  - Streamlit webapp (local): `http://localhost:8501/`
+
 3. Copy `config.example.yml` to `config.yml` and add your credentials
 
 ## CLI Usage
@@ -88,6 +90,7 @@ spotify2tidal --to-spotify --all
 # Sync specific categories
 spotify2tidal --to-spotify --favorites   # Tidal favorites → Spotify liked songs
 spotify2tidal --to-spotify --albums      # Tidal albums → Spotify library
+spotify2tidal --to-spotify --playlists   # Tidal playlists → Spotify playlists (add-only)
 spotify2tidal --to-spotify --artists     # Tidal follows → Spotify follows
 ```
 
@@ -134,9 +137,9 @@ This means running the sync multiple times is fast and won't create duplicates.
 
 All CLI data is stored in the `library/` directory:
 
-- `cache.json` — Spotify→Tidal track/album/artist mappings
-- `.spotify_cache` — Spotify OAuth token
-- `.tidal_session.json` — Tidal session
+- `cache.json` -- Spotify→Tidal track/album/artist mappings
+- `.spotify_cache` -- Spotify OAuth token
+- `.tidal_session.json` -- Tidal session
 
 **Interoperability**: The web app export ZIP uses the same cache format. You can:
 
@@ -150,7 +153,7 @@ All CLI data is stored in the `library/` directory:
 After each sync, CSVs are exported to `./library/`:
 
 - `spotify_tracks.csv` - All synced tracks
-- `spotify_albums.csv` - All synced albums  
+- `spotify_albums.csv` - All synced albums
 - `spotify_artists.csv` - All synced artists
 - `spotify_podcasts.csv` - All podcasts (if exported)
 - `not_found_*.csv` - Items not found on Tidal

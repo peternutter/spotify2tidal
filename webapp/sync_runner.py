@@ -149,7 +149,9 @@ async def run_sync(
     # Determine which steps to run
     if direction == "to_spotify":
         # Reverse sync (Tidal -> Spotify). We currently support
-        # favorites/albums/artists.
+        # favorites/albums/artists/playlists.
+        if sync_options.get("all") or sync_options.get("playlists"):
+            steps.append(("playlists", "Syncing Tidal playlists to Spotify"))
         if sync_options.get("all") or sync_options.get("favorites"):
             steps.append(("favorites", "Syncing Tidal favorites to Spotify"))
         if sync_options.get("all") or sync_options.get("albums"):
@@ -187,7 +189,9 @@ async def run_sync(
             details_placeholder.markdown(step_info)
 
             if direction == "to_spotify":
-                if step_key == "favorites":
+                if step_key == "playlists":
+                    results["playlists"] = await engine.sync_all_playlists_to_spotify()
+                elif step_key == "favorites":
                     added, nf = await engine.sync_favorites_to_spotify()
                     results["favorites"] = {"added": added, "not_found": nf}
                 elif step_key == "albums":
