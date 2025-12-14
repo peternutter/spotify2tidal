@@ -217,7 +217,7 @@ class UserErrors:
         return (
             f"❌ Tidal authentication failed: {original_error}\n\n"
             "💡 Try these steps:\n"
-            "   1. Delete ~/.tidal_session.json and try again\n"
+            "   1. Delete library/.tidal_session.json and try again\n"
             "   2. Make sure you complete the login in the browser within 5 minutes\n"
             "   3. Check your Tidal subscription is active"
         )

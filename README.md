@@ -91,13 +91,20 @@ The tool is smart about avoiding duplicates:
 
 This means running the sync multiple times is fast and won't create duplicates.
 
-## Cache Management
+## Data Storage
 
-Track mappings are stored in `~/.spotify2tidal_cache.db`. You can:
+All CLI data is stored in the `library/` directory:
 
-- **Backup**: Copy the file to save your sync progress
-- **Restore**: Replace the file to restore progress on a new machine
-- **Clear**: Delete the file to force fresh searches
+- `cache.json` — Spotify→Tidal track/album/artist mappings
+- `.spotify_cache` — Spotify OAuth token
+- `.tidal_session.json` — Tidal session
+
+**Interoperability**: The web app export ZIP uses the same cache format. You can:
+
+- **Export from CLI**: Copy `library/cache.json` and CSVs
+- **Import to web app**: Upload the file as a ZIP
+- **Export from web app**: Extract the ZIP to `library/`
+- **Clear**: Delete files to force re-authentication/search
 
 ## Library Export
 

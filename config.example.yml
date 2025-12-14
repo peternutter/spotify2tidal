@@ -17,7 +17,7 @@ spotify:
 
 tidal:
   # Path to store Tidal OAuth session (optional)
-  # Default: ~/.tidal_session.json
+  # Default: library/.tidal_session.json (same as export_dir)
   # session_file: /path/to/tidal_session.json
 
 sync:

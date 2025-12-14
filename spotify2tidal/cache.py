@@ -38,9 +38,9 @@ class MatchCache:
             with open(self._cache_file) as f:
                 data = json.load(f)
 
-            self._track_matches = data.get("track_matches", {})
-            self._album_matches = data.get("album_matches", {})
-            self._artist_matches = data.get("artist_matches", {})
+            self._track_matches = data.get("tracks", {})
+            self._album_matches = data.get("albums", {})
+            self._artist_matches = data.get("artists", {})
             self._failures = data.get("failures", {})
         except (json.JSONDecodeError, OSError):
             # Invalid or unreadable file, start fresh
@@ -53,9 +53,9 @@ class MatchCache:
             return
 
         data = {
-            "track_matches": self._track_matches,
-            "album_matches": self._album_matches,
-            "artist_matches": self._artist_matches,
+            "tracks": self._track_matches,
+            "albums": self._album_matches,
+            "artists": self._artist_matches,
             "failures": self._failures,
         }
 

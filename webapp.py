@@ -115,7 +115,8 @@ def render_main():
 
     # Sync button
     st.markdown('<div class="sync-btn">', unsafe_allow_html=True)
-    if st.button("Start Sync", disabled=st.session_state.sync_running):
+    button_text = "Stop Sync" if st.session_state.sync_running else "Start Sync"
+    if st.button(button_text, disabled=st.session_state.sync_running):
         st.session_state.sync_running = True
         add_log("info", "Starting sync operation...")
 

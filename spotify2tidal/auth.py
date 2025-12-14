@@ -24,7 +24,9 @@ SPOTIFY_SCOPES = (
 )
 
 
-def open_spotify_session(config: dict) -> spotipy.Spotify:
+def open_spotify_session(
+    config: dict, cache_path: Optional[str] = None
+) -> spotipy.Spotify:
     """
     Open a Spotify session using OAuth.
 
@@ -34,6 +36,10 @@ def open_spotify_session(config: dict) -> spotipy.Spotify:
         - redirect_uri: OAuth redirect URI (default: http://127.0.0.1:8888/callback)
         - username: Spotify username (optional)
         - open_browser: Whether to open browser for auth (default: True)
+
+    Args:
+        config: Configuration dictionary
+        cache_path: Path to store OAuth token cache (default: .spotify_cache in cwd)
     """
     # Allow environment variables to override config
     client_id = config.get("client_id") or os.environ.get("SPOTIFY_CLIENT_ID")
@@ -57,35 +63,41 @@ def open_spotify_session(config: dict) -> spotipy.Spotify:
         scope=SPOTIFY_SCOPES,
         username=config.get("username"),
         open_browser=config.get("open_browser", True),
+        cache_path=cache_path,
     )
 
     return spotipy.Spotify(auth_manager=auth_manager)
 
 
-def open_tidal_session(config: Optional[dict] = None) -> tidalapi.Session:
+def open_tidal_session(
+    config: Optional[dict] = None, session_file: Optional[str] = None
+) -> tidalapi.Session:
     """
     Open a Tidal session using OAuth.
 
     Attempts to load existing session from file, otherwise initiates OAuth flow.
 
-    Config can contain:
-        - session_file: Path to session file (default: ~/.tidal_session.json)
+    Args:
+        config: Config dict, can contain 'session_file' key
+        session_file: Direct path to session file (overrides config)
+                      Default: library/.tidal_session.json
     """
     config = config or {}
-    session_file_config = config.get("session_file")
 
-    if session_file_config:
-        # Expand ~ to home directory
-        session_file = Path(session_file_config).expanduser()
+    # Priority: direct parameter > config > default
+    if session_file:
+        session_path = Path(session_file)
+    elif config.get("session_file"):
+        session_path = Path(config["session_file"]).expanduser()
     else:
-        session_file = Path.home() / ".tidal_session.json"
+        session_path = Path.home() / ".tidal_session.json"
 
     session = tidalapi.Session()
 
     # Try to load existing session
-    if session_file.exists():
+    if session_path.exists():
         try:
-            session.load_session_from_file(session_file)
+            session.load_session_from_file(session_path)
             if session.check_login():
                 logger.info("Loaded existing Tidal session")
                 return session
@@ -115,7 +127,7 @@ def open_tidal_session(config: Optional[dict] = None) -> tidalapi.Session:
 
     if session.check_login():
         # Save session for future use
-        session.save_session_to_file(session_file)
+        session.save_session_to_file(session_path)
         logger.info("Tidal login successful, session saved")
         return session
     else:

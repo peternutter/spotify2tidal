@@ -171,8 +171,17 @@ def main():
 
     # Connect to Spotify
     logger.progress("Connecting to Spotify...")
+    library_config = config.get("library", {})
+    library_dir = Path(library_config.get("export_dir", "./library"))
+    library_dir.mkdir(parents=True, exist_ok=True)
+
+    # Store Spotify cache in library directory
+    spotify_cache_path = str(library_dir / ".spotify_cache")
+
     try:
-        spotify = open_spotify_session(config.get("spotify", {}))
+        spotify = open_spotify_session(
+            config.get("spotify", {}), cache_path=spotify_cache_path
+        )
         user = spotify.current_user()
         username = user["display_name"] or user["id"]
         logger.success(f"Connected to Spotify as {username}")
@@ -186,10 +195,14 @@ def main():
             logger.error(UserErrors.spotify_auth_failed(str(e)))
         sys.exit(1)
 
-    # Connect to Tidal
+    # Connect to Tidal - store session in library directory
     logger.progress("Connecting to Tidal...")
+    tidal_session_path = str(library_dir / ".tidal_session.json")
+
     try:
-        tidal = open_tidal_session(config.get("tidal", {}))
+        tidal = open_tidal_session(
+            config.get("tidal", {}), session_file=tidal_session_path
+        )
         if not tidal.check_login():
             logger.error(UserErrors.tidal_auth_failed("Login check failed"))
             sys.exit(1)
@@ -198,10 +211,9 @@ def main():
         logger.error(UserErrors.tidal_auth_failed(str(e)))
         sys.exit(1)
 
-    # Create sync engine with cache persistence
+    # Create sync engine with cache in library directory
     sync_config = config.get("sync", {})
-    library_config = config.get("library", {})
-    cache_file = str(Path.home() / ".spotify2tidal_cache.json")
+    cache_file = str(library_dir / "cache.json")
     cache = MatchCache(cache_file=cache_file)
     logger.debug(f"Using cache: {cache_file} ({cache.get_stats()})")
 
@@ -210,7 +222,7 @@ def main():
         tidal,
         max_concurrent=sync_config.get("max_concurrent", 10),
         rate_limit=sync_config.get("rate_limit", 10),
-        library_dir=library_config.get("export_dir", "./library"),
+        library_dir=str(library_dir),
         logger=logger,
         cache=cache,
     )
