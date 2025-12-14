@@ -139,12 +139,20 @@ def render_main():
         sync_options = st.session_state.sync_options
         st.session_state.sync_options = None  # Clear to prevent re-running
 
-        status_placeholder = st.empty()
-        progress_placeholder = st.empty()
+        # Show initial progress UI
+        status_text = st.empty()
+        status_text.info("🔄 Starting sync...")
+        progress_bar = st.progress(0, text="Preparing...")
+        details_area = st.empty()
 
         try:
             results = asyncio.run(
-                run_sync(sync_options, status_placeholder, progress_placeholder)
+                run_sync(
+                    sync_options,
+                    status_text,
+                    progress_bar,
+                    details_area,
+                )
             )
             st.session_state.sync_results = results
             st.session_state.sync_running = False

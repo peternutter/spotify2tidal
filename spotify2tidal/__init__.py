@@ -16,13 +16,9 @@ import logging
 
 from .auth import open_spotify_session, open_tidal_session
 from .cache import MatchCache
-
-# Legacy import for backwards compatibility
-from .spotify2tidal import Spotify2Tidal
 from .sync import SyncEngine
 
 __all__ = [
-    "Spotify2Tidal",  # Legacy
     "SyncEngine",
     "MatchCache",
     "open_spotify_session",

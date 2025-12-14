@@ -370,5 +370,82 @@ CUSTOM_CSS = """
         border-color: var(--accent);
     }
 
+    /* Progress Metrics Display */
+    .progress-metrics {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin: 1rem 0;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .progress-metric {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .metric-label {
+        color: var(--text-3);
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    .metric-value {
+        color: var(--text);
+        font-size: 0.95rem;
+        font-weight: 600;
+        font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+    }
+
+    /* Completion Stats */
+    .completion-stats {
+        background: linear-gradient(
+            145deg,
+            rgba(29, 185, 84, 0.08) 0%,
+            var(--card) 100%
+        );
+        border: 1px solid var(--accent);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        margin: 1rem 0;
+        display: flex;
+        justify-content: space-around;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.25rem;
+        min-width: 80px;
+    }
+
+    .stat-icon {
+        font-size: 1.5rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .stat-label {
+        color: var(--text-2);
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    .stat-value {
+        color: var(--text);
+        font-size: 1.1rem;
+        font-weight: 700;
+        font-family: 'SF Mono', 'Fira Code', 'Monaco', monospace;
+    }
+
 </style>
 """
