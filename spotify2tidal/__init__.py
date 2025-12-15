@@ -15,7 +15,7 @@ Features:
 import logging
 
 from .cache import MatchCache
-from .sync import SyncEngine
+from .sync_engine import SyncEngine
 
 try:
     from .auth import open_spotify_session, open_tidal_session

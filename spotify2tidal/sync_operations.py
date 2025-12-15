@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 if TYPE_CHECKING:
-    from .sync import SyncEngine
+    from .sync_engine import SyncEngine
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 """Tests for the track matching logic."""
 
-from spotify2tidal.sync import TrackMatcher, normalize, simplify
+from spotify2tidal.matching import TrackMatcher, normalize, simplify
 
 
 class TestNormalize:

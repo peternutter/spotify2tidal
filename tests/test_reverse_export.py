@@ -1,8 +1,8 @@
 import asyncio
 from unittest.mock import MagicMock
 
-from spotify2tidal.library import LibraryExporter
-from spotify2tidal.sync import SyncEngine
+from spotify2tidal.library_exporter import LibraryExporter
+from spotify2tidal.sync_engine import SyncEngine
 
 
 def test_reverse_sync_exports_tracks():

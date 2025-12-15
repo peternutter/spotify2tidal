@@ -10,7 +10,7 @@ import streamlit as st
 
 from spotify2tidal.cache import MatchCache
 from spotify2tidal.logging_utils import SyncLogger
-from spotify2tidal.sync import SyncEngine
+from spotify2tidal.sync_engine import SyncEngine
 
 from .state import add_log, get_global_throttle
 

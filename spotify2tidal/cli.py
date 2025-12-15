@@ -14,7 +14,7 @@ import yaml
 from .auth import open_spotify_session, open_tidal_session
 from .cache import MatchCache
 from .logging_utils import SyncLogger, UserErrors
-from .sync import SyncEngine
+from .sync_engine import SyncEngine
 
 
 def load_config(config_path: str) -> dict:

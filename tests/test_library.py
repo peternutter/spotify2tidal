@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from spotify2tidal.library import (
-    LibraryExporter,
+from spotify2tidal.library_csv_spotify import (
     export_albums,
     export_artists,
     export_not_found_tracks,
     export_podcasts,
     export_tracks,
 )
+from spotify2tidal.library_exporter import LibraryExporter
 
 
 @pytest.fixture

@@ -7,3 +7,4 @@ library
 .cache
 .streamlit/secrets.toml
 .DS_Store
+.coverage

@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from spotify2tidal.sync import SyncEngine
+from spotify2tidal.sync_engine import SyncEngine
 
 
 @pytest.fixture
