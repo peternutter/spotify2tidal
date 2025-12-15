@@ -114,7 +114,9 @@ def render_main():
     direction = st.session_state.get("sync_direction", "to_tidal")
 
     if direction == "to_spotify":
-        st.caption("Current flow: Tidal → Spotify (favorites, albums, artists).")
+        st.caption(
+            "Current flow: Tidal → Spotify (playlists, favorites, albums, artists)."
+        )
     else:
         st.caption(
             "Current flow: Spotify → Tidal (playlists, liked songs, albums, artists)."
@@ -131,14 +133,14 @@ def render_main():
     with col2:
         if direction == "to_spotify":
             if not sync_all:
+                playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
                 favorites = st.checkbox(
                     "Favorites / Liked Songs", value=True, key="sync_favorites"
                 )
                 albums = st.checkbox("Albums", value=True, key="sync_albums")
                 artists = st.checkbox("Artists", value=True, key="sync_artists")
             else:
-                favorites = albums = artists = True
-            playlists = False
+                playlists = favorites = albums = artists = True
             podcasts = False
         else:
             if not sync_all:
@@ -234,7 +236,7 @@ def render_main():
             st.session_state.sync_options = {
                 "direction": "to_spotify",
                 "all": sync_all,
-                "playlists": False,
+                "playlists": playlists,
                 "favorites": favorites,
                 "albums": albums,
                 "artists": artists,

@@ -156,6 +156,10 @@ async def sync_items_batched(
         existing_ids = await config.fetch_existing_ids()
         logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
 
+        # Add to library export if available
+        if config.add_to_library:
+            config.add_to_library(source_items)
+
         # Phase 2: Search and collect items to add
         items_to_add = []
         not_found_count = 0
@@ -177,6 +181,8 @@ async def sync_items_batched(
             else:
                 not_found_count += 1
                 engine._report_progress(event="item", matched=False)
+                if config.add_not_found:
+                    config.add_not_found(item)
 
         # Phase 3: Add in batches
         added = 0

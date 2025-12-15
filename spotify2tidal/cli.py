@@ -441,12 +441,12 @@ def main():
         if results:
             print_summary(results, logger)
 
-            # Auto-export library data
-            logger.progress("Exporting library data...")
-            export_result = engine.export_library()
-            if export_result["files"]:
+            # Auto-export backup snapshot (Spotify + Tidal + playlists)
+            logger.progress("Exporting backup snapshot...")
+            export_result = asyncio.run(engine.export_backup())
+            if export_result.get("files"):
                 export_dir = engine.library.export_dir
-                logger.success(f"Library exported to: {export_dir}")
+                logger.success(f"Backup exported to: {export_dir}")
                 for name, path in export_result["files"].items():
                     logger.debug(f"  - {name}: {path}")
 

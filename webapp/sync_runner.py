@@ -231,20 +231,11 @@ async def run_sync(
         if results:
             export_files = {}
 
-            if direction == "to_spotify":
-                # For reverse sync, export the current Tidal library snapshot.
-                tidal_exports = await engine.export_tidal_library()
-                for key, content in (tidal_exports or {}).items():
+            export_result = await engine.export_backup()
+            if export_result.get("files"):
+                for key, content in export_result["files"].items():
                     filename = f"{key}.csv" if not str(key).endswith(".csv") else key
                     export_files[str(filename)] = content
-            else:
-                export_result = engine.export_library()
-                if export_result.get("files"):
-                    for key, content in export_result["files"].items():
-                        filename = (
-                            f"{key}.csv" if not str(key).endswith(".csv") else key
-                        )
-                        export_files[str(filename)] = content
 
             # Also export cache data for future restore
             import json

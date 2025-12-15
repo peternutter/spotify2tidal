@@ -511,6 +511,166 @@ class SyncEngine:
 
         return results
 
+    async def export_backup(self) -> dict:
+        """Export a backup snapshot of Spotify and Tidal libraries and playlists."""
+        if not self.library:
+            return {"files": {}, "stats": {}}
+
+        from .library import (
+            export_tidal_albums,
+            export_tidal_artists,
+            export_tidal_tracks,
+        )
+
+        # =========================
+        # Spotify library snapshot
+        # =========================
+        self._log("progress", "Fetching Spotify library snapshot...")
+        spotify_tracks = await self.spotify_fetcher.get_saved_tracks(
+            limit=self._item_limit
+        )
+        spotify_albums = await self.spotify_fetcher.get_saved_albums(
+            limit=self._item_limit
+        )
+        spotify_artists = await self.spotify_fetcher.get_followed_artists(
+            limit=self._item_limit
+        )
+        spotify_podcasts = await self.spotify_fetcher.get_saved_shows(
+            limit=self._item_limit
+        )
+
+        # Overwrite snapshot lists (keep not-found lists accumulated during sync).
+        self.library.tracks = spotify_tracks
+        self.library.albums = spotify_albums
+        self.library.artists = spotify_artists
+        self.library.podcasts = spotify_podcasts
+
+        # =========================
+        # Spotify playlists snapshot
+        # =========================
+        self._log("progress", "Fetching Spotify playlists snapshot...")
+        spotify_playlists: List[dict] = []
+        results = self.spotify.current_user_playlists()
+        while True:
+            spotify_playlists.extend(results.get("items", []))
+            if not results.get("next"):
+                break
+            results = self.spotify.next(results)
+
+        spotify_playlists = self._apply_limit(spotify_playlists)
+        spotify_playlist_items: List[dict] = []
+
+        for playlist in spotify_playlists:
+            playlist_id = playlist.get("id")
+            if not playlist_id:
+                continue
+            playlist_name = playlist.get("name", "") or ""
+
+            tracks = await self.spotify_fetcher.get_playlist_tracks(
+                playlist_id, limit=self._item_limit
+            )
+            for idx, track in enumerate(tracks):
+                if not track or not track.get("id"):
+                    continue
+                artists = ", ".join(a["name"] for a in track.get("artists", []))
+                album = track.get("album", {}).get("name", "")
+                isrc = track.get("external_ids", {}).get("isrc", "")
+                tidal_match = self.cache.get_track_match(track["id"]) or ""
+
+                spotify_playlist_items.append(
+                    {
+                        "spotify_playlist_id": playlist_id,
+                        "playlist_name": playlist_name,
+                        "position": idx,
+                        "spotify_track_id": track.get("id", ""),
+                        "tidal_track_id": tidal_match,
+                        "name": track.get("name", ""),
+                        "artists": artists,
+                        "album": album,
+                        "isrc": isrc,
+                    }
+                )
+
+        self.library.spotify_playlists = spotify_playlists
+        self.library.spotify_playlist_items = spotify_playlist_items
+
+        # =========================
+        # Tidal library snapshot
+        # =========================
+        self._log("progress", "Fetching Tidal library snapshot...")
+        tidal_tracks = await self.tidal_fetcher.get_favorite_tracks(
+            limit_total=self._item_limit
+        )
+        tidal_albums = await self.tidal_fetcher.get_favorite_albums(
+            limit_total=self._item_limit
+        )
+        tidal_artists = await self.tidal_fetcher.get_favorite_artists(
+            limit_total=self._item_limit
+        )
+
+        tidal_exports: dict = {}
+        if tidal_tracks:
+            tidal_exports["tidal_tracks"] = export_tidal_tracks(
+                tidal_tracks, self.library.export_dir
+            )
+        if tidal_albums:
+            tidal_exports["tidal_albums"] = export_tidal_albums(
+                tidal_albums, self.library.export_dir
+            )
+        if tidal_artists:
+            tidal_exports["tidal_artists"] = export_tidal_artists(
+                tidal_artists, self.library.export_dir
+            )
+
+        # =========================
+        # Tidal playlists snapshot
+        # =========================
+        self._log("progress", "Fetching Tidal playlists snapshot...")
+        tidal_playlists = list(self.tidal.user.playlists())
+        tidal_playlists = self._apply_limit(tidal_playlists)
+
+        tidal_playlist_items: List[dict] = []
+        for playlist in tidal_playlists:
+            playlist_id = getattr(playlist, "id", None)
+            playlist_name = getattr(playlist, "name", None) or ""
+            if not playlist_id:
+                continue
+
+            tracks = await self.tidal_fetcher.get_playlist_tracks(
+                playlist, limit_total=self._item_limit
+            )
+            for idx, track in enumerate(tracks):
+                if not track:
+                    continue
+                try:
+                    artists = ", ".join(a.name for a in (track.artists or []))
+                    album_name = track.album.name if track.album else ""
+                    isrc = getattr(track, "isrc", "") or ""
+                    spotify_match = self.cache.get_spotify_track_match(track.id) or ""
+
+                    tidal_playlist_items.append(
+                        {
+                            "tidal_playlist_id": playlist_id,
+                            "playlist_name": playlist_name,
+                            "position": idx,
+                            "tidal_track_id": track.id,
+                            "spotify_track_id": spotify_match,
+                            "name": track.name or "",
+                            "artists": artists,
+                            "album": album_name,
+                            "isrc": isrc,
+                        }
+                    )
+                except Exception:
+                    continue
+
+        self.library.tidal_playlists = tidal_playlists
+        self.library.tidal_playlist_items = tidal_playlist_items
+
+        exported = self.library.export_all()
+        files = {**exported, **tidal_exports}
+        return {"files": files, "stats": self.library.get_stats()}
+
     async def _get_spotify_playlist_track_ids(self, playlist_id: str) -> Set[str]:
         """Get ALL Spotify track IDs already present in a playlist."""
         existing: Set[str] = set()
@@ -554,7 +714,7 @@ class SyncEngine:
         return created["id"]
 
     async def sync_tidal_playlist_to_spotify(self, tidal_playlist) -> Tuple[int, int]:
-        """Sync a single Tidal playlist to Spotify (add-only, preserves source order)."""
+        """Sync single Tidal playlist to Spotify (add-only, preserves source order)."""
         from .spotify_searcher import SpotifySearcher
 
         self.rate_limiter.start()
@@ -588,6 +748,31 @@ class SyncEngine:
                 if not spotify_id:
                     not_found += 1
                     self._report_progress(event="item", matched=False)
+                    if self.library:
+                        try:
+                            artists = ", ".join(
+                                a.name
+                                for a in (getattr(tidal_track, "artists", None) or [])
+                            )
+                            album_name = (
+                                getattr(getattr(tidal_track, "album", None), "name", "")
+                                if getattr(tidal_track, "album", None)
+                                else ""
+                            )
+                            self.library.add_not_found_tidal_track(
+                                {
+                                    "tidal_id": getattr(tidal_track, "id", ""),
+                                    "name": getattr(tidal_track, "name", "") or "",
+                                    "artists": artists,
+                                    "album": album_name,
+                                    "duration": getattr(tidal_track, "duration", 0)
+                                    or 0,
+                                    "isrc": getattr(tidal_track, "isrc", "") or "",
+                                    "context": f"playlist:{playlist_name}",
+                                }
+                            )
+                        except Exception:
+                            pass
                     continue
 
                 self._report_progress(event="item", matched=True)
@@ -621,7 +806,7 @@ class SyncEngine:
     # =========================================================================
 
     async def sync_all_playlists_to_spotify(self) -> dict:
-        """Sync all user playlists from Tidal to Spotify (create if missing, add-only)."""
+        """Sync all Tidal playlists to Spotify (create if missing, add-only)."""
         playlists = self.tidal.user.playlists()
         items = self._apply_limit(list(playlists))
 
@@ -653,6 +838,12 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_track_match,
                 add_item=lambda x: None,  # Handled by batch_add
+                add_to_library=self.library.add_tidal_source_tracks
+                if self.library
+                else None,
+                add_not_found=self.library.add_not_found_tidal_track
+                if self.library
+                else None,
                 progress_desc="Syncing favorite tracks to Spotify",
                 reverse_order=False,
             ),
@@ -681,6 +872,12 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_album_match,
                 add_item=lambda x: None,  # Handled by batch_add
+                add_to_library=self.library.add_tidal_source_albums
+                if self.library
+                else None,
+                add_not_found=self.library.add_not_found_tidal_album
+                if self.library
+                else None,
                 progress_desc="Syncing favorite albums to Spotify",
                 reverse_order=False,
             ),
@@ -709,7 +906,13 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_artist_match,
                 add_item=lambda x: None,  # Handled by batch_add
-                progress_desc="Syncing followed artists to Spotify",
+                add_to_library=self.library.add_tidal_source_artists
+                if self.library
+                else None,
+                add_not_found=self.library.add_not_found_tidal_artist
+                if self.library
+                else None,
+                progress_desc="Syncing favorite artists to Spotify",
                 reverse_order=False,
             ),
             self,
