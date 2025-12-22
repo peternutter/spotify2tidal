@@ -91,7 +91,7 @@ Tips:
         "--all",
         action="store_true",
         dest="sync_all",
-        help="Sync everything (playlists, favorites, albums, artists)",
+        help="Sync everything (playlists, favorites, albums, artists, podcasts)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable verbose debug output"
@@ -345,6 +345,10 @@ def main():
                 added, nf = await engine.sync_artists_to_spotify()
                 results["artists"] = {"added": added, "not_found": nf}
 
+                logger.progress("Exporting podcasts...")
+                count = await engine.export_podcasts()
+                results["podcasts"] = {"exported": count}
+
             elif args.favorites:
                 logger.progress("Syncing Tidal favorites to Spotify...")
                 added, not_found = await engine.sync_favorites_to_spotify()
@@ -441,9 +445,25 @@ def main():
         if results:
             print_summary(results, logger)
 
-            # Auto-export backup snapshot (Spotify + Tidal + playlists)
+            # Determine which categories to backup based on what was synced
+            categories = []
+            if args.sync_all:
+                categories = None  # Backup everything
+            else:
+                if args.favorites:
+                    categories.append("tracks")
+                if args.albums:
+                    categories.append("albums")
+                if args.artists:
+                    categories.append("artists")
+                if args.playlists:
+                    categories.append("playlists")
+                if args.podcasts:
+                    categories.append("podcasts")
+
+            # Auto-export backup snapshot
             logger.progress("Exporting backup snapshot...")
-            export_result = asyncio.run(engine.export_backup())
+            export_result = asyncio.run(engine.export_backup(categories=categories))
             if export_result.get("files"):
                 export_dir = engine.library.export_dir
                 logger.success(f"Backup exported to: {export_dir}")

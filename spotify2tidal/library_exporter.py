@@ -27,6 +27,7 @@ from .library_csv_tidal import (
     export_tidal_playlists,
     export_tidal_tracks,
 )
+from .library_opml_spotify import export_podcasts_opml
 
 
 class LibraryExporter:
@@ -122,6 +123,12 @@ class LibraryExporter:
             (self.albums, export_albums, "albums", "spotify_albums.csv"),
             (self.artists, export_artists, "artists", "spotify_artists.csv"),
             (self.podcasts, export_podcasts, "podcasts", "spotify_podcasts.csv"),
+            (
+                self.podcasts,
+                export_podcasts_opml,
+                "podcasts_opml",
+                "spotify_podcasts.opml",
+            ),
             (
                 self.spotify_playlists,
                 export_spotify_playlists,

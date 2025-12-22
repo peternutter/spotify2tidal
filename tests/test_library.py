@@ -13,6 +13,7 @@ from spotify2tidal.library_csv_spotify import (
     export_tracks,
 )
 from spotify2tidal.library_exporter import LibraryExporter
+from spotify2tidal.library_opml_spotify import export_podcasts_opml
 
 
 @pytest.fixture
@@ -151,6 +152,32 @@ class TestExportPodcasts:
         assert "show123" in content
         assert "Test Podcast" in content
         assert "Test Publisher" in content
+
+
+class TestExportPodcastsOPML:
+    """Tests for export_podcasts_opml function."""
+
+    def test_export_podcasts_opml_creates_file(self, temp_dir, sample_podcast):
+        """Test that export_podcasts_opml creates an OPML file."""
+        result = export_podcasts_opml([sample_podcast], temp_dir)
+        assert result.exists()
+        assert result.suffix == ".opml"
+        assert result.name == "spotify_podcasts.opml"
+
+    def test_export_podcasts_opml_content(self, temp_dir, sample_podcast):
+        """Test that exported OPML contains correct data and structure."""
+        export_podcasts_opml([sample_podcast], temp_dir)
+        filepath = temp_dir / "spotify_podcasts.opml"
+
+        with open(filepath) as f:
+            content = f.read()
+
+        assert '<?xml version="1.0" encoding="utf-8"?>' in content
+        assert '<opml version="2.0">' in content
+        assert "<outline" in content
+        assert 'text="Test Podcast"' in content
+        assert 'title="Test Podcast"' in content
+        assert "https://open.spotify.com/show/show123" in content
 
 
 class TestLibraryExporter:

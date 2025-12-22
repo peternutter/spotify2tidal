@@ -158,6 +158,8 @@ async def run_sync(
             steps.append(("albums", "Syncing Tidal albums to Spotify"))
         if sync_options.get("all") or sync_options.get("artists"):
             steps.append(("artists", "Syncing Tidal artists to Spotify"))
+        if sync_options.get("all") or sync_options.get("podcasts"):
+            steps.append(("podcasts", "Exporting podcasts"))
     else:
         # Default direction (Spotify -> Tidal).
         if sync_options.get("all") or sync_options.get("playlists"):
@@ -231,10 +233,32 @@ async def run_sync(
         if results:
             export_files = {}
 
-            export_result = await engine.export_backup()
+            # Determine which categories to backup
+            categories = []
+            if sync_options.get("all"):
+                categories = None
+            else:
+                if sync_options.get("favorites"):
+                    categories.append("tracks")
+                if sync_options.get("albums"):
+                    categories.append("albums")
+                if sync_options.get("artists"):
+                    categories.append("artists")
+                if sync_options.get("playlists"):
+                    categories.append("playlists")
+                if sync_options.get("podcasts"):
+                    categories.append("podcasts")
+
+            export_result = await engine.export_backup(categories=categories)
             if export_result.get("files"):
                 for key, content in export_result["files"].items():
-                    filename = f"{key}.csv" if not str(key).endswith(".csv") else key
+                    # Preserve existing extensions, default to .csv
+                    if str(key).endswith((".csv", ".opml", ".json")):
+                        filename = key
+                    elif key == "podcasts_opml":
+                        filename = "spotify_podcasts.opml"
+                    else:
+                        filename = f"{key}.csv"
                     export_files[str(filename)] = content
 
             # Also export cache data for future restore

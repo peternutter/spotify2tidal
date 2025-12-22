@@ -157,12 +157,16 @@ def render_file_upload():
                             raise ValueError("Archive contains unsafe file paths.")
 
                         lower = filename.lower()
-                        if not (lower.endswith(".csv") or lower.endswith(".json")):
+                        if not (
+                            lower.endswith(".csv")
+                            or lower.endswith(".json")
+                            or lower.endswith(".opml")
+                        ):
                             raise ValueError(
                                 f"Archive contains unsupported file type: {filename}"
                             )
 
-                        if filename.endswith(".csv"):
+                        if filename.endswith(".csv") or filename.endswith(".opml"):
                             content = zf.read(filename).decode("utf-8")
                             loaded_data[filename] = content
                         elif filename.endswith(".json"):

@@ -113,19 +113,10 @@ def render_main():
     # Show options for the *last* chosen direction to avoid confusion.
     direction = st.session_state.get("sync_direction", "to_tidal")
 
-    if direction == "to_spotify":
-        st.caption(
-            "Current flow: Tidal → Spotify (playlists, favorites, albums, artists)."
-        )
-    else:
-        st.caption(
-            "Current flow: Spotify → Tidal (playlists, liked songs, albums, artists)."
-        )
-
     col1, col2 = st.columns(2)
     with col1:
         sync_all = st.checkbox(
-            "Everything (recommended)",
+            "All Library Items",
             value=True,
             key="sync_all",
         )
@@ -139,9 +130,11 @@ def render_main():
                 )
                 albums = st.checkbox("Albums", value=True, key="sync_albums")
                 artists = st.checkbox("Artists", value=True, key="sync_artists")
+                podcasts = st.checkbox(
+                    "Podcasts (export only)", value=True, key="sync_podcasts_spotify"
+                )
             else:
-                playlists = favorites = albums = artists = True
-            podcasts = False
+                playlists = favorites = albums = artists = podcasts = True
         else:
             if not sync_all:
                 playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
@@ -151,11 +144,10 @@ def render_main():
                     "Followed Artists", value=True, key="sync_artists"
                 )
                 podcasts = st.checkbox(
-                    "Podcasts (export only)", value=False, key="sync_podcasts"
+                    "Podcasts (export only)", value=True, key="sync_podcasts"
                 )
             else:
-                playlists = favorites = albums = artists = True
-                podcasts = False
+                playlists = favorites = albums = artists = podcasts = True
 
     st.divider()
 
@@ -240,7 +232,7 @@ def render_main():
                 "favorites": favorites,
                 "albums": albums,
                 "artists": artists,
-                "podcasts": False,
+                "podcasts": podcasts,
                 "item_limit": int(item_limit) if item_limit else None,
             }
             add_log("info", "Starting Tidal → Spotify sync...")

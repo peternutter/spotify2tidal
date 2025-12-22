@@ -245,8 +245,8 @@ class SyncEngine:
     async def export_tidal_library(self) -> dict:
         return await _export_tidal_library(self)
 
-    async def export_backup(self) -> dict:
-        return await _export_backup(self)
+    async def export_backup(self, categories: Optional[List[str]] = None) -> dict:
+        return await _export_backup(self, categories=categories)
 
     # ---------------------------------------------------------------------
     # Reverse sync (Tidal -> Spotify)
