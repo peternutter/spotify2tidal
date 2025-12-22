@@ -12,7 +12,7 @@ This project combines and improves upon two open-source scripts:
 - **Bidirectional sync** -- Spotify → Tidal and Tidal → Spotify
 - **Sync playlists** with incremental updates (only adds new tracks)
 - **Sync favorites** (liked tracks), albums, and followed artists
-- **Export podcasts** to CSV (Tidal doesn't support podcasts)
+- **Export podcasts** to CSV & OPML (Tidal doesn't support podcasts)
 - **Smart matching** using ISRC, duration, name, and artist
 - **Order preservation** -- oldest items appear at bottom (matching Spotify)
 - **Incremental sync** -- skips items already in your library
@@ -57,8 +57,8 @@ pip install -e .
 1. Create a Spotify app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
 2. Add a Redirect URI depending on how you run the project:
 
-  - CLI: `http://127.0.0.1:8888/callback`
-  - Streamlit webapp (local): `http://localhost:8501/`
+- CLI: `http://127.0.0.1:8888/callback`
+- Streamlit webapp (local): `http://localhost:8501/`
 
 3. Copy `config.example.yml` to `config.yml` and add your credentials
 
@@ -75,7 +75,7 @@ spotify2tidal --favorites    # Liked tracks
 spotify2tidal --albums       # Saved albums
 spotify2tidal --artists      # Followed artists
 spotify2tidal --playlists    # All playlists
-spotify2tidal --podcasts     # Export podcasts to CSV
+spotify2tidal --podcasts     # Export podcasts to CSV & OPML
 
 # Sync a specific playlist
 spotify2tidal -p <playlist_id_or_uri>
@@ -156,6 +156,7 @@ After each sync, CSVs are exported to `./library/`:
 - `spotify_albums.csv` - All synced albums
 - `spotify_artists.csv` - All synced artists
 - `spotify_podcasts.csv` - All podcasts (if exported)
+- `spotify_podcasts.opml` - Podcasts in OPML format for RSS readers
 - `not_found_*.csv` - Items not found on Tidal
 
 ## Tests
