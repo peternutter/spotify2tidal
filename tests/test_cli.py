@@ -50,7 +50,7 @@ def test_main_to_spotify_favorites_calls_engine(monkeypatch, tmp_path: Path, cap
             calls["favorites"] += 1
             return (2, 1)
 
-        async def export_backup(self):
+        async def export_backup(self, categories=None):
             calls["backup"] += 1
             return {"files": {"cache": str(tmp_path / "cache.json")}}
 
@@ -111,7 +111,7 @@ def test_main_warns_on_to_spotify_without_category(monkeypatch, tmp_path: Path, 
         def __init__(self, *args, **kwargs):
             self.library = type("L", (), {"export_dir": str(tmp_path)})()
 
-        async def export_backup(self):
+        async def export_backup(self, categories=None):
             raise AssertionError("backup should not run when no results")
 
     monkeypatch.setattr(cli, "open_spotify_session", lambda *_a, **_k: _Spotify())

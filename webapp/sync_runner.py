@@ -150,10 +150,10 @@ async def run_sync(
     if direction == "to_spotify":
         # Reverse sync (Tidal -> Spotify). We currently support
         # favorites/albums/artists/playlists.
-        if sync_options.get("all") or sync_options.get("playlists"):
-            steps.append(("playlists", "Syncing Tidal playlists to Spotify"))
         if sync_options.get("all") or sync_options.get("favorites"):
             steps.append(("favorites", "Syncing Tidal favorites to Spotify"))
+        if sync_options.get("all") or sync_options.get("playlists"):
+            steps.append(("playlists", "Syncing Tidal playlists to Spotify"))
         if sync_options.get("all") or sync_options.get("albums"):
             steps.append(("albums", "Syncing Tidal albums to Spotify"))
         if sync_options.get("all") or sync_options.get("artists"):
@@ -162,10 +162,10 @@ async def run_sync(
             steps.append(("podcasts", "Exporting podcasts"))
     else:
         # Default direction (Spotify -> Tidal).
-        if sync_options.get("all") or sync_options.get("playlists"):
-            steps.append(("playlists", "Syncing playlists"))
         if sync_options.get("all") or sync_options.get("favorites"):
             steps.append(("favorites", "Syncing liked songs"))
+        if sync_options.get("all") or sync_options.get("playlists"):
+            steps.append(("playlists", "Syncing playlists"))
         if sync_options.get("all") or sync_options.get("albums"):
             steps.append(("albums", "Syncing saved albums"))
         if sync_options.get("all") or sync_options.get("artists"):

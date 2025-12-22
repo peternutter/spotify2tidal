@@ -330,12 +330,12 @@ def main():
         # Reverse sync: Tidal -> Spotify
         if args.to_spotify:
             if args.sync_all:
-                logger.progress("Syncing Tidal playlists to Spotify...")
-                results["playlists"] = await engine.sync_all_playlists_to_spotify()
-
                 logger.progress("Syncing Tidal favorites to Spotify...")
                 added, nf = await engine.sync_favorites_to_spotify()
                 results["favorites"] = {"added": added, "not_found": nf}
+
+                logger.progress("Syncing Tidal playlists to Spotify...")
+                results["playlists"] = await engine.sync_all_playlists_to_spotify()
 
                 logger.progress("Syncing Tidal albums to Spotify...")
                 added, nf = await engine.sync_albums_to_spotify()
@@ -387,12 +387,12 @@ def main():
 
         elif args.sync_all:
             # Sync everything
-            logger.progress("Syncing all playlists...")
-            results["playlists"] = await engine.sync_all_playlists()
-
             logger.progress("Syncing liked songs...")
             added, nf = await engine.sync_favorites()
             results["favorites"] = {"added": added, "not_found": nf}
+
+            logger.progress("Syncing all playlists...")
+            results["playlists"] = await engine.sync_all_playlists()
 
             logger.progress("Syncing saved albums...")
             added, nf = await engine.sync_albums()

@@ -234,3 +234,15 @@ class TidalFetcher:
             offset += limit
 
         return all_artists
+
+    async def get_playlists(
+        self, limit: Optional[int] = None
+    ) -> List[tidalapi.Playlist]:
+        """Get ALL user playlists from Tidal (optionally limited, paginated)."""
+        # Note: Tidal's user.playlists() currently returns a simple list in the
+        # python lib, but we add this for consistency and future-proofing in
+        # case they add pagination.
+        playlists = list(self.tidal.user.playlists())
+        if limit:
+            return playlists[:limit]
+        return playlists

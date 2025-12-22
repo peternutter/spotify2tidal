@@ -199,13 +199,13 @@ class TidalClient:
     # Playlist management
     # =========================================================================
 
-    def get_playlists(self) -> List[tidalapi.Playlist]:
+    async def get_playlists(self) -> List[tidalapi.Playlist]:
         """Get all user playlists."""
-        return self.session.user.playlists()
+        return list(self.session.user.playlists())
 
-    def get_or_create_playlist(self, name: str) -> tidalapi.Playlist:
+    async def get_or_create_playlist(self, name: str) -> tidalapi.Playlist:
         """Find existing playlist by name or create new one."""
-        playlists = self.get_playlists()
+        playlists = await self.get_playlists()
         for playlist in playlists:
             if playlist.name == name:
                 return playlist

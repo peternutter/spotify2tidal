@@ -141,6 +141,27 @@ class SpotifyFetcher:
 
         return shows
 
+    async def get_playlists(self, limit: Optional[int] = None) -> List[dict]:
+        """Get ALL user playlists from Spotify (optionally limited, paginated)."""
+        playlists = []
+        results = self.spotify.current_user_playlists()
+
+        while True:
+            playlists.extend(results.get("items", []))
+            if limit and len(playlists) >= limit:
+                self._log_progress(
+                    f"Fetching playlists (limited): {len(playlists)} playlists..."
+                )
+                return playlists[:limit]
+
+            self._log_progress(f"Fetching playlists: {len(playlists)} playlists...")
+
+            if not results.get("next"):
+                break
+            results = self.spotify.next(results)
+
+        return playlists
+
     async def get_saved_track_ids(self) -> Set[str]:
         """Get ALL saved track IDs from Spotify."""
         all_ids: Set[str] = set()

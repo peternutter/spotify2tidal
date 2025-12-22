@@ -101,19 +101,22 @@ async def sync_playlist(
 
 
 async def sync_all_playlists(engine) -> dict:
-    """Sync all user-owned Spotify playlists to Tidal."""
-    playlists = engine.spotify.current_user_playlists()
+    """Sync all user-accessible Spotify playlists to Tidal."""
+    playlists = await engine.spotify_fetcher.get_playlists(limit=engine._item_limit)
     user_id = engine.spotify.current_user()["id"]
 
     results: dict = {}
-    items = engine._apply_limit(playlists.get("items", []))
 
-    for playlist in items:
-        if playlist.get("owner", {}).get("id") != user_id:
-            continue
-
+    for playlist in playlists:
+        is_owner = playlist.get("owner", {}).get("id") == user_id
         name = playlist.get("name", "")
-        logger.info(f"Syncing playlist: {name}")
+        owner_name = playlist.get("owner", {}).get("display_name", "unknown")
+
+        if not is_owner:
+            logger.info(f"Syncing followed playlist: {name} (by {owner_name})")
+        else:
+            logger.info(f"Syncing owned playlist: {name}")
+
         added, not_found = await sync_playlist(engine, playlist["id"])
         results[name] = {"added": added, "not_found": not_found}
 
@@ -205,11 +208,10 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
 
 async def sync_all_playlists_to_spotify(engine) -> dict:
     """Sync all Tidal playlists to Spotify (create if missing, add-only)."""
-    playlists = engine.tidal.user.playlists()
-    items = engine._apply_limit(list(playlists))
+    playlists = await engine.tidal_fetcher.get_playlists(limit=engine._item_limit)
 
     results: dict = {}
-    for playlist in items:
+    for playlist in playlists:
         name = getattr(playlist, "name", None) or "Tidal Playlist"
         logger.info(f"Syncing Tidal playlist to Spotify: {name}")
         added, not_found = await sync_tidal_playlist_to_spotify(engine, playlist)

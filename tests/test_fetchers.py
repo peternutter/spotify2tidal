@@ -37,6 +37,19 @@ class _PagingSpotify:
                 "next": None,
             }
         ]
+        self._playlists_pages = [
+            {
+                "items": [
+                    {"id": "pl1", "name": "Play1"},
+                    {"id": "pl2", "name": "Play2"},
+                ],
+                "next": "page2",
+            },
+            {
+                "items": [{"id": "pl3", "name": "Play3"}],
+                "next": None,
+            },
+        ]
 
     def current_user_saved_tracks(self):
         return self._saved_tracks_pages[0]
@@ -50,6 +63,9 @@ class _PagingSpotify:
     def playlist_tracks(self, _playlist_id):
         return self._playlist_tracks_pages[0]
 
+    def current_user_playlists(self):
+        return self._playlists_pages[0]
+
     def current_user_saved_shows(self):
         raise RuntimeError("not authorized")
 
@@ -60,6 +76,8 @@ class _PagingSpotify:
             return self._saved_tracks_pages[1]
         if results is self._followed_artists_pages[0]:
             return {"artists": self._followed_artists_pages[0]}
+        if results is self._playlists_pages[0]:
+            return self._playlists_pages[1]
 
         # In tests we only paginate saved tracks.
         return {"items": [], "next": None}
@@ -85,6 +103,12 @@ def test_spotify_fetcher_paginates_and_limits_and_skips_non_tracks():
 
     playlist_tracks = asyncio.run(fetcher.get_playlist_tracks("pl", limit=10))
     assert [t["id"] for t in playlist_tracks] == ["p1", "p2"]
+
+    playlists = asyncio.run(fetcher.get_playlists())
+    assert [p["id"] for p in playlists] == ["pl1", "pl2", "pl3"]
+
+    limited_pl = asyncio.run(fetcher.get_playlists(limit=2))
+    assert [p["id"] for p in limited_pl] == ["pl1", "pl2"]
 
 
 def test_spotify_fetcher_ids_and_podcast_exception_path():

@@ -93,15 +93,10 @@ async def export_backup(engine, categories: Optional[List[str]] = None) -> dict:
     # 2. Spotify Playlists
     if sync_all or "playlists" in categories:
         engine._log("progress", "Fetching Spotify playlists snapshot...")
-        spotify_playlists: List[dict] = []
-        results = engine.spotify.current_user_playlists()
-        while True:
-            spotify_playlists.extend(results.get("items", []))
-            if not results.get("next"):
-                break
-            results = engine.spotify.next(results)
+        spotify_playlists = await engine.spotify_fetcher.get_playlists(
+            limit=engine._item_limit
+        )
 
-        spotify_playlists = engine._apply_limit(spotify_playlists)
         spotify_playlist_items: List[dict] = []
 
         for playlist in spotify_playlists:
@@ -174,8 +169,9 @@ async def export_backup(engine, categories: Optional[List[str]] = None) -> dict:
     # 4. Tidal Playlists
     if sync_all or "playlists" in categories:
         engine._log("progress", "Fetching Tidal playlists snapshot...")
-        tidal_playlists = list(engine.tidal.user.playlists())
-        tidal_playlists = engine._apply_limit(tidal_playlists)
+        tidal_playlists = await engine.tidal_fetcher.get_playlists(
+            limit=engine._item_limit
+        )
 
         tidal_playlist_items: List[dict] = []
         for playlist in tidal_playlists:
