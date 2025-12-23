@@ -5,6 +5,7 @@ Reusable UI components for the web application.
 import html
 import io
 import json
+import os
 import platform
 import zipfile
 from datetime import datetime
@@ -146,32 +147,39 @@ def render_file_upload():
 
                     # Parse and load data into session state
                     loaded_data = {}
-                    for filename in file_list:
-                        # Only allow flat files, no directories / traversal.
-                        if (
-                            "/" in filename
-                            or "\\" in filename
-                            or filename.startswith(("/", "\\"))
-                            or ".." in filename
-                        ):
-                            raise ValueError("Archive contains unsafe file paths.")
+                    for info in infos:
+                        filename = info.filename
+                        # Skip directory-only entries (standard zip format ends these with /)
+                        if filename.endswith("/") or filename.endswith("\\") or info.is_dir():
+                            continue
 
-                        lower = filename.lower()
+                        # Security: Still block manual traversal or absolute paths.
+                        if ".." in filename or filename.startswith(("/", "\\")):
+                            raise ValueError(f"Archive contains unsafe file path: {filename}")
+
+                        # Flatten the path to handle zips of the 'library/' folder itself.
+                        # library/cache.json -> cache.json
+                        basename = os.path.basename(filename)
+                        if not basename:
+                            continue
+
+                        lower = basename.lower()
                         if not (
                             lower.endswith(".csv")
                             or lower.endswith(".json")
                             or lower.endswith(".opml")
                         ):
-                            raise ValueError(
-                                f"Archive contains unsupported file type: {filename}"
-                            )
+                            # Skip unsupported files (like .DS_Store or __MACOSX) silently
+                            # unless it's something clearly intentional but wrong.
+                            if basename.startswith("."):
+                                continue
+                            raise ValueError(f"Archive contains unsupported file type: {basename}")
 
-                        if filename.endswith(".csv") or filename.endswith(".opml"):
-                            content = zf.read(filename).decode("utf-8")
-                            loaded_data[filename] = content
-                        elif filename.endswith(".json"):
-                            content = zf.read(filename).decode("utf-8")
-                            loaded_data[filename] = json.loads(content)
+                        content = zf.read(filename).decode("utf-8")
+                        if lower.endswith(".json"):
+                            loaded_data[basename] = json.loads(content)
+                        else:
+                            loaded_data[basename] = content
 
                     # Store in session state for sync_runner to use
                     st.session_state.uploaded_export = loaded_data
@@ -316,9 +324,7 @@ def render_spotify_connection():
         )
         st.caption("Complete login in the new tab, then return here.")
     else:
-        if st.button(
-            "Connect Spotify", key="spotify_connect", use_container_width=True
-        ):
+        if st.button("Connect Spotify", key="spotify_connect", use_container_width=True):
             connect_spotify()
             st.rerun()
 
@@ -343,9 +349,7 @@ def render_tidal_connection():
             if check_tidal_login():
                 st.rerun()
             else:
-                st.warning(
-                    "Login not detected yet. Please complete the login and try again."
-                )
+                st.warning("Login not detected yet. Please complete the login and try again.")
     else:
         if st.button("Connect Tidal", key="tidal_connect", use_container_width=True):
             start_tidal_login()
@@ -358,9 +362,7 @@ def render_connection_status():
     ready = st.session_state.spotify_connected and st.session_state.tidal_connected
     if ready:
         direction = st.session_state.get("sync_direction", "to_tidal")
-        direction_label = (
-            "Spotify → Tidal" if direction != "to_spotify" else "Tidal → Spotify"
-        )
+        direction_label = "Spotify → Tidal" if direction != "to_spotify" else "Tidal → Spotify"
         st.markdown(
             f'<div class="success-card">✅ Ready to sync<br/>'
             f'<span style="color: var(--text-2); font-size: 0.95rem;">'
@@ -397,12 +399,8 @@ def render_sync_results(results: dict):
         elif isinstance(data, dict) and "exported" in data:
             st.metric(f"{category.title()} Exported", data["exported"])
         elif isinstance(data, dict):
-            total_added = sum(
-                d.get("added", 0) for d in data.values() if isinstance(d, dict)
-            )
-            total_nf = sum(
-                d.get("not_found", 0) for d in data.values() if isinstance(d, dict)
-            )
+            total_added = sum(d.get("added", 0) for d in data.values() if isinstance(d, dict))
+            total_nf = sum(d.get("not_found", 0) for d in data.values() if isinstance(d, dict))
             col1, col2 = st.columns(2)
             with col1:
                 st.metric(f"{category.title()} Added", total_added)
