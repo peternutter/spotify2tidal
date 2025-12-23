@@ -48,7 +48,7 @@ build-backend = "hatchling.build"
 packages = ["spotify2tidal"]
 
 [tool.ruff]
-line-length = 88
+line-length = 100
 target-version = "py39"
 
 [tool.ruff.lint]

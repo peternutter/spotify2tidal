@@ -93,14 +93,44 @@ def render_main():
     # sync_running=True but sync_options already cleared (we clear it to prevent
     # accidental duplicate syncs). In that case, the UI can look "stuck".
     if st.session_state.sync_running and not st.session_state.get("sync_options"):
-        st.warning(
-            "A previous sync appears to have been interrupted. "
-            "Reset to re-enable the Start Sync button."
-        )
-        if st.button("Reset sync", key="reset_sync", use_container_width=True):
+        # Check if we have saved progress we can resume from
+        completed_steps = st.session_state.get("sync_progress", {})
+        saved_options = st.session_state.get("sync_options_saved")
+
+        if completed_steps:
+            # Auto-resume: immediately continue from where we left off
+            completed_names = [k for k, v in completed_steps.items() if v]
+            add_log(
+                "info",
+                f"🔄 Auto-resuming sync. Completed: {', '.join(completed_names)}",
+            )
+
+            st.session_state.sync_running = True
+            st.session_state.sync_started_at = time.time()
+            # Use saved options if available, otherwise use defaults
+            if saved_options:
+                st.session_state.sync_options = saved_options
+            else:
+                # Reconstruct default "all" options
+                direction = st.session_state.get("sync_direction", "to_tidal")
+                st.session_state.sync_options = {
+                    "direction": direction,
+                    "all": True,
+                    "playlists": True,
+                    "favorites": True,
+                    "albums": True,
+                    "artists": True,
+                    "podcasts": True,
+                    "item_limit": None,
+                }
+            st.rerun()
+        else:
+            # No progress saved, auto-reset and let user start fresh
             st.session_state.sync_running = False
             st.session_state.sync_options = None
-            add_log("warning", "Sync state reset after interruption")
+            st.session_state.sync_progress = {}
+            st.session_state.sync_options_saved = None
+            add_log("warning", "Sync state reset (no progress to resume)")
             st.rerun()
 
     # File upload for restoring previous export
@@ -125,9 +155,7 @@ def render_main():
         if direction == "to_spotify":
             if not sync_all:
                 playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
-                favorites = st.checkbox(
-                    "Favorites / Liked Songs", value=True, key="sync_favorites"
-                )
+                favorites = st.checkbox("Favorites / Liked Songs", value=True, key="sync_favorites")
                 albums = st.checkbox("Albums", value=True, key="sync_albums")
                 artists = st.checkbox("Artists", value=True, key="sync_artists")
                 podcasts = st.checkbox(
@@ -140,12 +168,8 @@ def render_main():
                 playlists = st.checkbox("Playlists", value=True, key="sync_playlists")
                 favorites = st.checkbox("Liked Songs", value=True, key="sync_favorites")
                 albums = st.checkbox("Saved Albums", value=True, key="sync_albums")
-                artists = st.checkbox(
-                    "Followed Artists", value=True, key="sync_artists"
-                )
-                podcasts = st.checkbox(
-                    "Podcasts (export only)", value=True, key="sync_podcasts"
-                )
+                artists = st.checkbox("Followed Artists", value=True, key="sync_artists")
+                podcasts = st.checkbox("Podcasts (export only)", value=True, key="sync_podcasts")
             else:
                 playlists = favorites = albums = artists = podcasts = True
 
@@ -201,7 +225,10 @@ def render_main():
             st.session_state.sync_started_at = time.time()
             st.session_state.last_error = None
             st.session_state.last_traceback = None
-            st.session_state.sync_options = {
+            # Clear progress for fresh start (but keep if resuming)
+            if not st.session_state.get("sync_progress"):
+                st.session_state.sync_progress = {}
+            sync_opts = {
                 "direction": "to_tidal",
                 "all": sync_all,
                 "playlists": playlists,
@@ -211,6 +238,8 @@ def render_main():
                 "podcasts": podcasts,
                 "item_limit": int(item_limit) if item_limit else None,
             }
+            st.session_state.sync_options = sync_opts
+            st.session_state.sync_options_saved = sync_opts.copy()
             add_log("info", "Starting Spotify → Tidal sync...")
             st.rerun()
 
@@ -225,7 +254,10 @@ def render_main():
             st.session_state.sync_started_at = time.time()
             st.session_state.last_error = None
             st.session_state.last_traceback = None
-            st.session_state.sync_options = {
+            # Clear progress for fresh start (but keep if resuming)
+            if not st.session_state.get("sync_progress"):
+                st.session_state.sync_progress = {}
+            sync_opts = {
                 "direction": "to_spotify",
                 "all": sync_all,
                 "playlists": playlists,
@@ -235,6 +267,8 @@ def render_main():
                 "podcasts": podcasts,
                 "item_limit": int(item_limit) if item_limit else None,
             }
+            st.session_state.sync_options = sync_opts
+            st.session_state.sync_options_saved = sync_opts.copy()
             add_log("info", "Starting Tidal → Spotify sync...")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)

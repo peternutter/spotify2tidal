@@ -109,9 +109,7 @@ async def run_sync(
         # Still show *something* so users can tell the app is working.
         if total > 0:
             progress_frac = min(1.0, current / total)
-            progress_bar.progress(
-                progress_frac, text=f"{phase_emoji} {current:,} / {total:,}"
-            )
+            progress_bar.progress(progress_frac, text=f"{phase_emoji} {current:,} / {total:,}")
         else:
             if current > 0:
                 progress_bar.progress(0.0, text=f"{phase_emoji} {current:,} items")
@@ -178,6 +176,12 @@ async def run_sync(
 
     try:
         for step_key, step_name in steps:
+            # Check if this step was already completed (resuming after interruption)
+            if st.session_state.sync_progress.get(step_key):
+                add_log("info", f"⏭️ Skipping {step_name} (already completed)")
+                steps_done += 1
+                continue
+
             # Reset per-step progress
             progress_state["current"] = 0
             progress_state["total"] = 0
@@ -217,6 +221,10 @@ async def run_sync(
                 elif step_key == "podcasts":
                     count = await engine.export_podcasts()
                     results["podcasts"] = {"exported": count}
+
+            # Mark step as completed for resume capability
+            st.session_state.sync_progress[step_key] = True
+            add_log("info", f"📍 Checkpoint: {step_key} marked complete")
 
             steps_done += 1
             add_log("success", f"{step_name} ✓")
@@ -285,18 +293,22 @@ async def run_sync(
                 st.metric("Failed adds", f"{progress_state.get('failed', 0):,}")
 
             # Secondary metric below the main summary row
-            st.caption(
-                f"Cache (track matches): {cache_stats.get('cached_track_matches', 0):,}"
-            )
+            st.caption(f"Cache (track matches): {cache_stats.get('cached_track_matches', 0):,}")
 
         add_log("success", "Sync completed successfully!")
 
+        # Clear progress tracking since sync completed successfully
+        st.session_state.sync_progress = {}
+        st.session_state.sync_options_saved = None
+        add_log("info", "🧹 Progress tracking cleared (sync complete)")
+
     except Exception as e:
         add_log("error", f"Sync failed: {e}")
+        completed = list(st.session_state.sync_progress.keys())
+        add_log("info", f"📍 Progress saved: {completed} steps completed")
         st.session_state.last_traceback = traceback.format_exc()
         st.session_state.last_error = (
-            f"**Sync Error**\n\n{e}\n\n"
-            "Your progress has been cached. Try running sync again to resume."
+            f"**Sync Error**\n\n{e}\n\n" "Progress saved. Click 'Start Sync' to resume."
         )
         raise
 

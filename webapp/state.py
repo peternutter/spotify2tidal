@@ -131,6 +131,9 @@ def init_session_state():
         "export_files": {},
         "sync_started_at": None,
         "sync_last_progress_at": None,
+        # Resumable sync: track completed steps for resume after interruption
+        "sync_progress": {},  # e.g. {"favorites": True, "playlists": True}
+        "sync_options_saved": None,  # Original options for resume
         # Performance settings
         "max_concurrent": max_concurrent,
         "rate_limit": rate_limit,
