@@ -164,8 +164,27 @@ class TestExportPodcastsOPML:
         assert result.suffix == ".opml"
         assert result.name == "spotify_podcasts.opml"
 
-    def test_export_podcasts_opml_content(self, temp_dir, sample_podcast):
+    def test_export_podcasts_opml_content(self, temp_dir, sample_podcast, monkeypatch):
         """Test that exported OPML contains correct data and structure."""
+        import requests
+
+        # Mock requests to return something so it doesn't skip the item
+        def mock_get(*args, **kwargs):
+            class MockResponse:
+                def json(self):
+                    return {
+                        "results": [
+                            {"trackName": "Test Podcast", "feedUrl": "https://example.com/rss"}
+                        ]
+                    }
+
+                def __getattr__(self, name):
+                    return 200 if name == "status_code" else None
+
+            return MockResponse()
+
+        monkeypatch.setattr(requests.Session, "get", mock_get)
+
         export_podcasts_opml([sample_podcast], temp_dir)
         filepath = temp_dir / "spotify_podcasts.opml"
 
@@ -173,11 +192,88 @@ class TestExportPodcastsOPML:
             content = f.read()
 
         assert '<?xml version="1.0" encoding="utf-8"?>' in content
-        assert '<opml version="2.0">' in content
+        assert '<opml version="1.0">' in content
         assert "<outline" in content
+        assert 'version="RSS"' in content
         assert 'text="Test Podcast"' in content
         assert 'title="Test Podcast"' in content
-        assert "https://open.spotify.com/show/show123" in content
+        assert 'xmlUrl="https://example.com/rss"' in content
+
+    def test_export_podcasts_opml_resolves_rss(self, temp_dir, sample_podcast, monkeypatch):
+        """Test that export_podcasts_opml resolves RSS feeds using the API."""
+        import requests
+
+        def mock_get(*args, **kwargs):
+            class MockResponse:
+                def __init__(self, json_data):
+                    self.json_data = json_data
+                    self.status_code = 200
+
+                def json(self):
+                    return self.json_data
+
+            return MockResponse(
+                {"results": [{"trackName": "Test Podcast", "feedUrl": "https://example.com/rss"}]}
+            )
+
+        monkeypatch.setattr(requests.Session, "get", mock_get)
+
+        export_podcasts_opml([sample_podcast], temp_dir)
+        filepath = temp_dir / "spotify_podcasts.opml"
+
+        with open(filepath) as f:
+            content = f.read()
+
+        # The xmlUrl should be the resolved one, not the spotify one
+        assert 'xmlUrl="https://example.com/rss"' in content
+        assert 'version="RSS"' in content
+        # htmlUrl is removed
+        assert "https://open.spotify.com/show/show123" not in content
+
+
+class TestPodcastRobustResolution:
+    """Tests for the improved robust podcast resolution logic."""
+
+    def test_normalize(self):
+        from spotify2tidal.library_opml_spotify import normalize
+
+        assert normalize("The Daily Podcast") == "thedaily"
+        assert normalize("Joe Rogan Experience (Podcast)") == "joeroganexperience"
+        assert normalize("News Show") == "news"
+
+    def test_score_match(self):
+        from spotify2tidal.library_opml_spotify import score_match
+
+        s_name = "My Cool Podcast"
+        s_pub = "Author"
+
+        # Perfect match
+        res1 = {"trackName": "My Cool Podcast", "artistName": "Author"}
+        assert score_match(s_name, s_pub, res1) >= 1.5
+
+        # Name match, publisher mismatch
+        res2 = {"trackName": "My Cool Podcast", "artistName": "Wrong"}
+        assert score_match(s_name, s_pub, res2) == 1.0
+
+        # Partial name match
+        res3 = {"trackName": "My Cool Podcast Extra", "artistName": "Author"}
+        assert score_match(s_name, s_pub, res3) == 1.0  # 0.5 (name contains) + 0.5 (pub match)
+
+    def test_extract_rss_from_description(self):
+        from spotify2tidal.library_opml_spotify import extract_rss_from_text
+
+        text = "Visit us at https://example.com/feed.rss for more."
+        assert extract_rss_from_text(text) == "https://example.com/feed.rss"
+
+        text2 = "Follow our feed: http://feeds.podcast.com/show"
+        assert extract_rss_from_text(text2) == "http://feeds.podcast.com/show"
+
+    def test_resolve_rss_url_desc_priority(self, monkeypatch):
+        from spotify2tidal.library_opml_spotify import resolve_rss_url
+
+        # Should return desc link without even calling API
+        res = resolve_rss_url(None, "Name", description="RSS: https://site.com/rss")
+        assert res == "https://site.com/rss"
 
 
 class TestLibraryExporter:

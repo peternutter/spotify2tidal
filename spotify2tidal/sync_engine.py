@@ -64,9 +64,9 @@ class SyncEngine:
         self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
 
         if library_dir is None:
-            self.library = LibraryExporter(None)
+            self.library = LibraryExporter(None, logger=logger)
         elif library_dir:
-            self.library = LibraryExporter(library_dir)
+            self.library = LibraryExporter(library_dir, logger=logger)
         else:
             self.library = None
 
@@ -142,9 +142,7 @@ class SyncEngine:
 
         for i, item in enumerate(tqdm(items, desc=desc)):
             yield item
-            self._report_progress(
-                event="update", current=i + 1, total=total, phase=phase
-            )
+            self._report_progress(event="update", current=i + 1, total=total, phase=phase)
 
     # ---------------------------------------------------------------------
     # Forward sync (Spotify -> Tidal)
@@ -161,9 +159,7 @@ class SyncEngine:
                 get_cache_match=self.cache.get_track_match,
                 add_item=self.tidal.user.favorites.add_track,
                 add_to_library=self.library.add_tracks if self.library else None,
-                add_not_found=self.library.add_not_found_track
-                if self.library
-                else None,
+                add_not_found=self.library.add_not_found_track if self.library else None,
                 progress_desc="Syncing favorite tracks",
             ),
             self,
@@ -175,16 +171,12 @@ class SyncEngine:
                 item_type="album",
                 fetch_source=self._fetch_spotify_saved_albums,
                 fetch_existing_ids=self.tidal_fetcher.get_favorite_album_ids,
-                search_item=lambda item: self.searcher.search_album(
-                    item.get("album", {})
-                ),
+                search_item=lambda item: self.searcher.search_album(item.get("album", {})),
                 get_source_id=lambda item: item.get("album", {}).get("id"),
                 get_cache_match=self.cache.get_album_match,
                 add_item=self.tidal.user.favorites.add_album,
                 add_to_library=self.library.add_albums if self.library else None,
-                add_not_found=self.library.add_not_found_album
-                if self.library
-                else None,
+                add_not_found=self.library.add_not_found_album if self.library else None,
                 progress_desc="Syncing albums",
             ),
             self,
@@ -201,9 +193,7 @@ class SyncEngine:
                 get_cache_match=self.cache.get_artist_match,
                 add_item=self.tidal.user.favorites.add_artist,
                 add_to_library=self.library.add_artists if self.library else None,
-                add_not_found=self.library.add_not_found_artist
-                if self.library
-                else None,
+                add_not_found=self.library.add_not_found_artist if self.library else None,
                 progress_desc="Syncing artists",
             ),
             self,
@@ -272,19 +262,13 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_track_match,
                 add_item=lambda x: None,
-                add_to_library=self.library.add_tidal_source_tracks
-                if self.library
-                else None,
-                add_not_found=self.library.add_not_found_tidal_track
-                if self.library
-                else None,
+                add_to_library=self.library.add_tidal_source_tracks if self.library else None,
+                add_not_found=self.library.add_not_found_tidal_track if self.library else None,
                 progress_desc="Syncing favorite tracks to Spotify",
                 reverse_order=False,
             ),
             self,
-            batch_add=lambda items: self.spotify.current_user_saved_tracks_add(
-                tracks=items
-            ),
+            batch_add=lambda items: self.spotify.current_user_saved_tracks_add(tracks=items),
         )
 
     async def sync_albums_to_spotify(self) -> Tuple[int, int]:
@@ -301,19 +285,13 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_album_match,
                 add_item=lambda x: None,
-                add_to_library=self.library.add_tidal_source_albums
-                if self.library
-                else None,
-                add_not_found=self.library.add_not_found_tidal_album
-                if self.library
-                else None,
+                add_to_library=self.library.add_tidal_source_albums if self.library else None,
+                add_not_found=self.library.add_not_found_tidal_album if self.library else None,
                 progress_desc="Syncing favorite albums to Spotify",
                 reverse_order=False,
             ),
             self,
-            batch_add=lambda items: self.spotify.current_user_saved_albums_add(
-                albums=items
-            ),
+            batch_add=lambda items: self.spotify.current_user_saved_albums_add(albums=items),
         )
 
     async def sync_artists_to_spotify(self) -> Tuple[int, int]:
@@ -330,12 +308,8 @@ class SyncEngine:
                 get_source_id=lambda item: item.id,
                 get_cache_match=self.cache.get_spotify_artist_match,
                 add_item=lambda x: None,
-                add_to_library=self.library.add_tidal_source_artists
-                if self.library
-                else None,
-                add_not_found=self.library.add_not_found_tidal_artist
-                if self.library
-                else None,
+                add_to_library=self.library.add_tidal_source_artists if self.library else None,
+                add_not_found=self.library.add_not_found_tidal_artist if self.library else None,
                 progress_desc="Syncing favorite artists to Spotify",
                 reverse_order=False,
             ),

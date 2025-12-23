@@ -71,9 +71,7 @@ def get_spotify_credentials() -> Optional[dict]:
     """Get Spotify credentials from Streamlit secrets (or env vars for local dev)."""
     try:
         # Prefer Streamlit secrets (Streamlit Cloud / Settings → Secrets)
-        client_id = st.secrets.get("SPOTIFY_CLIENT_ID") or os.environ.get(
-            "SPOTIFY_CLIENT_ID"
-        )
+        client_id = st.secrets.get("SPOTIFY_CLIENT_ID") or os.environ.get("SPOTIFY_CLIENT_ID")
         client_secret = st.secrets.get("SPOTIFY_CLIENT_SECRET") or os.environ.get(
             "SPOTIFY_CLIENT_SECRET"
         )
@@ -95,8 +93,7 @@ def get_spotify_credentials() -> Optional[dict]:
             redirect_uri = _infer_local_streamlit_redirect_uri()
             add_log(
                 "warning",
-                "SPOTIFY_REDIRECT_URI not set; using local Streamlit URL "
-                f"({redirect_uri}).",
+                "SPOTIFY_REDIRECT_URI not set; using local Streamlit URL " f"({redirect_uri}).",
             )
 
         # Guardrail: 8888/callback is the CLI default;
@@ -111,9 +108,7 @@ def get_spotify_credentials() -> Optional[dict]:
                 "Edit Settings → Redirect URIs.\n\n"
                 "Then restart the Streamlit app and try again."
             )
-            add_log(
-                "error", "Spotify redirect URI points to :8888 (CLI), not Streamlit."
-            )
+            add_log("error", "Spotify redirect URI points to :8888 (CLI), not Streamlit.")
             return None
 
         return {
@@ -196,7 +191,27 @@ def handle_spotify_callback() -> bool:
                     f"Connected to Spotify as {st.session_state.spotify_user}",
                 )
                 st.query_params.clear()
-                return True
+            except spotipy.exceptions.SpotifyException as e:
+                add_log("error", f"Spotify login failed: {e}")
+                if e.http_status == 403:
+                    st.session_state.last_error = (
+                        "**Spotify Login Failed (Forbidden)**\n\n"
+                        "This usually means the user is not registered in your "
+                        "Spotify Developer App's allowlist.\n\n"
+                        "**To fix this:**\n"
+                        "1. Go to the [Spotify Developer Dashboard]"
+                        "(https://developer.spotify.com/dashboard).\n"
+                        "2. Select your application.\n"
+                        "3. Go to **User Management**.\n"
+                        "4. Add the user's Spotify email address to the allowlist.\n\n"
+                        "Alternatively, ensure your app's credentials and redirect URI "
+                        "are correctly configured."
+                    )
+                else:
+                    st.session_state.last_error = (
+                        f"**Spotify Login Failed**\n\n{e}\n\n"
+                        "Try clearing your browser cookies and logging in again."
+                    )
             except Exception as e:
                 add_log("error", f"Spotify login failed: {e}")
                 st.session_state.last_error = (

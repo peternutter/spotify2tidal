@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
+
+if TYPE_CHECKING:
+    from .logging_utils import SyncLogger
 
 from .library_csv_common import ensure_dir
 from .library_csv_spotify import (
@@ -33,12 +36,18 @@ from .library_opml_spotify import export_podcasts_opml
 class LibraryExporter:
     """Collects items during sync and exports them as CSVs."""
 
-    def __init__(self, export_dir: Optional[str | Path] = None):
+    def __init__(
+        self,
+        export_dir: Optional[str | Path] = None,
+        logger: Optional["SyncLogger"] = None,
+    ):
         if export_dir:
             self.export_dir = Path(export_dir)
             ensure_dir(self.export_dir)
         else:
             self.export_dir = None
+
+        self.logger = logger
 
         # Spotify -> Tidal (Forward Sync)
         self.tracks: List[dict] = []
@@ -211,7 +220,10 @@ class LibraryExporter:
 
         for data, func, key, filename in exports:
             if data:
-                results[key] = func(data, self.export_dir, filename)
+                if func == export_podcasts_opml:
+                    results[key] = func(data, self.export_dir, filename, logger=self.logger)
+                else:
+                    results[key] = func(data, self.export_dir, filename)
 
         return results
 
