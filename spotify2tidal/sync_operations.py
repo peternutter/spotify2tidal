@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 if TYPE_CHECKING:
     from .sync_engine import SyncEngine
 
+from .retry_utils import retry_async_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,9 +87,7 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
         not_found = 0
         skipped = 0
 
-        for item in engine._progress_iter(
-            source_items, config.progress_desc, phase="searching"
-        ):
+        for item in engine._progress_iter(source_items, config.progress_desc, phase="searching"):
             source_id = config.get_source_id(item)
             from_cache = config.get_cache_match(source_id) is not None
 
@@ -96,17 +96,13 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
             if target_id:
                 if target_id in existing_ids:
                     skipped += 1
-                    engine._report_progress(
-                        event="item", matched=True, from_cache=from_cache
-                    )
+                    engine._report_progress(event="item", matched=True, from_cache=from_cache)
                     continue  # Already exists
 
                 try:
-                    config.add_item(target_id)
+                    await retry_async_call(config.add_item, target_id)
                     added += 1
-                    engine._report_progress(
-                        event="item", matched=True, from_cache=from_cache
-                    )
+                    engine._report_progress(event="item", matched=True, from_cache=from_cache)
                 except Exception as e:
                     logger.warning(f"Failed to add {config.item_type}: {e}")
                     engine._report_progress(event="item", matched=False, failed=True)
@@ -164,9 +160,7 @@ async def sync_items_batched(
         items_to_add = []
         not_found_count = 0
 
-        for item in engine._progress_iter(
-            source_items, config.progress_desc, phase="searching"
-        ):
+        for item in engine._progress_iter(source_items, config.progress_desc, phase="searching"):
             source_id = config.get_source_id(item)
             from_cache = config.get_cache_match(source_id) is not None
 
@@ -175,9 +169,7 @@ async def sync_items_batched(
             if target_id:
                 if target_id not in existing_ids:
                     items_to_add.append(target_id)
-                engine._report_progress(
-                    event="item", matched=True, from_cache=from_cache
-                )
+                engine._report_progress(event="item", matched=True, from_cache=from_cache)
             else:
                 not_found_count += 1
                 engine._report_progress(event="item", matched=False)
@@ -188,14 +180,13 @@ async def sync_items_batched(
         added = 0
         if items_to_add:
             batches = [
-                items_to_add[i : i + batch_size]
-                for i in range(0, len(items_to_add), batch_size)
+                items_to_add[i : i + batch_size] for i in range(0, len(items_to_add), batch_size)
             ]
             for batch in engine._progress_iter(
                 batches, f"Adding {config.item_type}s", phase="adding"
             ):
                 try:
-                    batch_add(batch)
+                    await retry_async_call(batch_add, batch)
                     added += len(batch)
                 except Exception as e:
                     logger.warning(f"Failed to add batch: {e}")

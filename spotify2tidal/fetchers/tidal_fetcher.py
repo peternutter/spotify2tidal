@@ -5,6 +5,8 @@ from typing import Callable, List, Optional, Set
 
 import tidalapi
 
+from ..retry_utils import retry_async_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,7 +49,9 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.tracks(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.tracks, limit=limit, offset=offset
+            )
             if not page:
                 break
 
@@ -69,16 +73,16 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.albums(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.albums, limit=limit, offset=offset
+            )
             if not page:
                 break
 
             for album in page:
                 all_ids.add(album.id)
 
-            self._log_progress(
-                f"Fetching Tidal album favorites: {len(all_ids)} albums..."
-            )
+            self._log_progress(f"Fetching Tidal album favorites: {len(all_ids)} albums...")
 
             if len(page) < limit:
                 break
@@ -93,16 +97,16 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.artists(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.artists, limit=limit, offset=offset
+            )
             if not page:
                 break
 
             for artist in page:
                 all_ids.add(artist.id)
 
-            self._log_progress(
-                f"Fetching Tidal artist favorites: {len(all_ids)} artists..."
-            )
+            self._log_progress(f"Fetching Tidal artist favorites: {len(all_ids)} artists...")
 
             if len(page) < limit:
                 break
@@ -117,7 +121,7 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = playlist.tracks(limit=limit, offset=offset)
+            page = await retry_async_call(playlist.tracks, limit=limit, offset=offset)
             if not page:
                 break
 
@@ -139,7 +143,7 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = playlist.tracks(limit=limit, offset=offset)
+            page = await retry_async_call(playlist.tracks, limit=limit, offset=offset)
             if not page:
                 break
 
@@ -154,24 +158,22 @@ class TidalFetcher:
 
         return tracks
 
-    async def get_favorite_tracks(
-        self, limit_total: Optional[int] = None
-    ) -> List[tidalapi.Track]:
+    async def get_favorite_tracks(self, limit_total: Optional[int] = None) -> List[tidalapi.Track]:
         """Get favorite tracks from Tidal (full objects, optionally limited)."""
         all_tracks: List[tidalapi.Track] = []
         limit = 100
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.tracks(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.tracks, limit=limit, offset=offset
+            )
             if not page:
                 break
 
             all_tracks.extend(page)
             if limit_total and len(all_tracks) >= limit_total:
-                self._log_progress(
-                    f"Fetching Tidal tracks (limited): {len(all_tracks)}..."
-                )
+                self._log_progress(f"Fetching Tidal tracks (limited): {len(all_tracks)}...")
                 return all_tracks[:limit_total]
             self._log_progress(f"Fetching Tidal tracks: {len(all_tracks)}...")
 
@@ -181,24 +183,22 @@ class TidalFetcher:
 
         return all_tracks
 
-    async def get_favorite_albums(
-        self, limit_total: Optional[int] = None
-    ) -> List[tidalapi.Album]:
+    async def get_favorite_albums(self, limit_total: Optional[int] = None) -> List[tidalapi.Album]:
         """Get favorite albums from Tidal (full objects, optionally limited)."""
         all_albums: List[tidalapi.Album] = []
         limit = 100
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.albums(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.albums, limit=limit, offset=offset
+            )
             if not page:
                 break
 
             all_albums.extend(page)
             if limit_total and len(all_albums) >= limit_total:
-                self._log_progress(
-                    f"Fetching Tidal albums (limited): {len(all_albums)}..."
-                )
+                self._log_progress(f"Fetching Tidal albums (limited): {len(all_albums)}...")
                 return all_albums[:limit_total]
             self._log_progress(f"Fetching Tidal albums: {len(all_albums)}...")
 
@@ -217,15 +217,15 @@ class TidalFetcher:
         offset = 0
 
         while True:
-            page = self.tidal.user.favorites.artists(limit=limit, offset=offset)
+            page = await retry_async_call(
+                self.tidal.user.favorites.artists, limit=limit, offset=offset
+            )
             if not page:
                 break
 
             all_artists.extend(page)
             if limit_total and len(all_artists) >= limit_total:
-                self._log_progress(
-                    f"Fetching Tidal artists (limited): {len(all_artists)}..."
-                )
+                self._log_progress(f"Fetching Tidal artists (limited): {len(all_artists)}...")
                 return all_artists[:limit_total]
             self._log_progress(f"Fetching Tidal artists: {len(all_artists)}...")
 
@@ -235,14 +235,12 @@ class TidalFetcher:
 
         return all_artists
 
-    async def get_playlists(
-        self, limit: Optional[int] = None
-    ) -> List[tidalapi.Playlist]:
+    async def get_playlists(self, limit: Optional[int] = None) -> List[tidalapi.Playlist]:
         """Get ALL user playlists from Tidal (optionally limited, paginated)."""
         # Note: Tidal's user.playlists() currently returns a simple list in the
         # python lib, but we add this for consistency and future-proofing in
         # case they add pagination.
-        playlists = list(self.tidal.user.playlists())
+        playlists = list(await retry_async_call(self.tidal.user.playlists))
         if limit:
             return playlists[:limit]
         return playlists

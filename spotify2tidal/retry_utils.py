@@ -73,9 +73,7 @@ def with_retry(
                         raise
 
                     last_exception = e
-                    delay = min(
-                        base_delay * (exponential_base ** (attempt - 1)), max_delay
-                    )
+                    delay = min(base_delay * (exponential_base ** (attempt - 1)), max_delay)
 
                     if jitter:
                         delay = delay * (0.5 + random.random())
@@ -127,9 +125,7 @@ def async_with_retry(
                         raise
 
                     last_exception = e
-                    delay = min(
-                        base_delay * (exponential_base ** (attempt - 1)), max_delay
-                    )
+                    delay = min(base_delay * (exponential_base ** (attempt - 1)), max_delay)
 
                     if jitter:
                         delay = delay * (0.5 + random.random())
@@ -172,9 +168,9 @@ async def retry_async_call(
             last_exception = e
             delay = base_delay * (2 ** (attempt - 1)) * (0.5 + random.random())
 
+            func_name = getattr(func, "__name__", str(func))
             logger.warning(
-                f"Retry {attempt}/{max_attempts} for {func.__name__} "
-                f"after {delay:.1f}s due to: {e}"
+                f"Retry {attempt}/{max_attempts} for {func_name} " f"after {delay:.1f}s due to: {e}"
             )
 
             await asyncio.sleep(delay)

@@ -98,8 +98,6 @@ def render_file_upload():
             try:
                 # Safety limits (avoid zip bombs / runaway memory)
                 max_zip_bytes = 20 * 1024 * 1024  # 20 MB
-                max_entries = 50
-                max_uncompressed_bytes = 50 * 1024 * 1024  # 50 MB total extracted
 
                 uploaded_size = getattr(uploaded_file, "size", None)
                 if uploaded_size is not None and uploaded_size > max_zip_bytes:
@@ -110,94 +108,24 @@ def render_file_upload():
                     return
 
                 raw = uploaded_file.getvalue()
-                if len(raw) > max_zip_bytes:
-                    st.error(
-                        f"❌ File too large ({len(raw) / 1024 / 1024:.1f} MB). "
-                        f"Max allowed is {max_zip_bytes / 1024 / 1024:.0f} MB."
+                loaded_data = parse_library_zip(raw)
+
+                # Store in session state for sync_runner to use
+                st.session_state.uploaded_export = loaded_data
+
+                # Load cache data if present (cache.json)
+                if "cache.json" in loaded_data:
+                    cache_data = loaded_data["cache.json"]
+                    _restore_cache_from_json(cache_data)
+                    add_log("info", "Restored match cache from uploaded file")
+                    st.info(
+                        f"🔄 Restored cache: "
+                        f"{len(cache_data.get('tracks', {}))} tracks, "
+                        f"{len(cache_data.get('albums', {}))} albums, "
+                        f"{len(cache_data.get('artists', {}))} artists"
                     )
-                    return
-
-                zip_buffer = io.BytesIO(raw)
-                with zipfile.ZipFile(zip_buffer, "r") as zf:
-                    infos = zf.infolist()
-                    if len(infos) > max_entries:
-                        st.error(
-                            f"❌ Archive contains too many files ({len(infos)}). "
-                            f"Max allowed is {max_entries}."
-                        )
-                        return
-
-                    total_uncompressed = sum(i.file_size for i in infos)
-                    if total_uncompressed > max_uncompressed_bytes:
-                        st.error(
-                            f"❌ Archive is too large when extracted "
-                            f"({total_uncompressed / 1024 / 1024:.1f} MB). "
-                            f"Max allowed is "
-                            f"{max_uncompressed_bytes / 1024 / 1024:.0f} MB."
-                        )
-                        return
-
-                    file_list = [i.filename for i in infos]
-                    st.success(f"✅ Loaded {len(file_list)} files from archive")
-
-                    # Show contents
-                    with st.expander("📄 Archive Contents", expanded=False):
-                        for filename in file_list:
-                            st.text(f"  • {filename}")
-
-                    # Parse and load data into session state
-                    loaded_data = {}
-                    for info in infos:
-                        filename = info.filename
-                        # Skip directory-only entries (standard zip format ends these with /)
-                        if filename.endswith("/") or filename.endswith("\\") or info.is_dir():
-                            continue
-
-                        # Security: Still block manual traversal or absolute paths.
-                        if ".." in filename or filename.startswith(("/", "\\")):
-                            raise ValueError(f"Archive contains unsafe file path: {filename}")
-
-                        # Flatten the path to handle zips of the 'library/' folder itself.
-                        # library/cache.json -> cache.json
-                        basename = os.path.basename(filename)
-                        if not basename:
-                            continue
-
-                        lower = basename.lower()
-                        if not (
-                            lower.endswith(".csv")
-                            or lower.endswith(".json")
-                            or lower.endswith(".opml")
-                        ):
-                            # Skip unsupported files (like .DS_Store or __MACOSX) silently
-                            # unless it's something clearly intentional but wrong.
-                            if basename.startswith("."):
-                                continue
-                            raise ValueError(f"Archive contains unsupported file type: {basename}")
-
-                        content = zf.read(filename).decode("utf-8")
-                        if lower.endswith(".json"):
-                            loaded_data[basename] = json.loads(content)
-                        else:
-                            loaded_data[basename] = content
-
-                    # Store in session state for sync_runner to use
-                    st.session_state.uploaded_export = loaded_data
-
-                    # Load cache data if present (cache.json)
-                    if "cache.json" in loaded_data:
-                        cache_data = loaded_data["cache.json"]
-                        _restore_cache_from_json(cache_data)
-                        add_log("info", "Restored match cache from uploaded file")
-                        st.info(
-                            f"🔄 Restored cache: "
-                            f"{len(cache_data.get('tracks', {}))} tracks, "
-                            f"{len(cache_data.get('albums', {}))} albums, "
-                            f"{len(cache_data.get('artists', {}))} artists"
-                        )
-
-            except zipfile.BadZipFile:
-                st.error("❌ Invalid zip file. Please upload a valid .zip archive.")
+            except (ValueError, zipfile.BadZipFile) as e:
+                st.error(f"❌ {e}")
             except Exception as e:
                 st.error(f"❌ Error reading file: {e}")
 
@@ -426,3 +354,62 @@ def render_sync_results(results: dict):
             key="download_results",
             help="Download CSVs of synced and not-found items.",
         )
+
+
+def parse_library_zip(raw_bytes: bytes) -> dict:
+    """
+    Parse a zipped library export, flattening paths and handling security.
+    """
+    max_zip_bytes = 20 * 1024 * 1024
+    max_entries = 50
+    max_uncompressed_bytes = 50 * 1024 * 1024
+
+    if len(raw_bytes) > max_zip_bytes:
+        raise ValueError(
+            f"File too large ({len(raw_bytes) / 1024 / 1024:.1f} MB). "
+            f"Max allowed is {max_zip_bytes / 1024 / 1024:.0f} MB."
+        )
+
+    zip_buffer = io.BytesIO(raw_bytes)
+    loaded_data = {}
+
+    with zipfile.ZipFile(zip_buffer, "r") as zf:
+        infos = zf.infolist()
+        if len(infos) > max_entries:
+            raise ValueError(
+                f"Archive contains too many files ({len(infos)}). " f"Max allowed is {max_entries}."
+            )
+
+        total_uncompressed = sum(i.file_size for i in infos)
+        if total_uncompressed > max_uncompressed_bytes:
+            raise ValueError(
+                f"Archive is too large when extracted "
+                f"({total_uncompressed / 1024 / 1024:.1f} MB). "
+                f"Max allowed is {max_uncompressed_bytes / 1024 / 1024:.0f} MB."
+            )
+
+        for info in infos:
+            filename = info.filename
+            if filename.endswith("/") or filename.endswith("\\") or info.is_dir():
+                continue
+
+            if ".." in filename or filename.startswith(("/", "\\")):
+                raise ValueError(f"Archive contains unsafe file path: {filename}")
+
+            basename = os.path.basename(filename)
+            if not basename:
+                continue
+
+            lower = basename.lower()
+            if not (lower.endswith(".csv") or lower.endswith(".json") or lower.endswith(".opml")):
+                if basename.startswith("."):
+                    continue
+                raise ValueError(f"Archive contains unsupported file type: {basename}")
+
+            content = zf.read(filename).decode("utf-8")
+            if lower.endswith(".json"):
+                loaded_data[basename] = json.loads(content)
+            else:
+                loaded_data[basename] = content
+
+    return loaded_data

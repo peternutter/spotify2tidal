@@ -10,6 +10,8 @@ from typing import List, Optional, Set, Tuple
 
 import tidalapi
 
+from .retry_utils import retry_async_call
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,10 +26,10 @@ async def sync_playlist(
         engine._report_progress(event="phase", phase="fetching")
 
         spotify_tracks = await _get_spotify_playlist_tracks(engine, spotify_playlist_id)
-        playlist_name = engine.spotify.playlist(spotify_playlist_id)["name"]
-        logger.info(
-            f"Found {len(spotify_tracks)} tracks in Spotify playlist '{playlist_name}'"
-        )
+        playlist_name = (await retry_async_call(engine.spotify.playlist, spotify_playlist_id))[
+            "name"
+        ]
+        logger.info(f"Found {len(spotify_tracks)} tracks in Spotify playlist '{playlist_name}'")
 
         if not spotify_tracks:
             return 0, 0
@@ -35,18 +37,14 @@ async def sync_playlist(
         spotify_tracks = engine._apply_limit(spotify_tracks)
 
         if tidal_playlist_id:
-            tidal_playlist = engine.tidal.playlist(tidal_playlist_id)
+            tidal_playlist = await retry_async_call(engine.tidal.playlist, tidal_playlist_id)
         else:
             tidal_playlist = await _get_or_create_tidal_playlist(engine, playlist_name)
 
         existing_tidal_ids: Set[int] = set()
         if getattr(tidal_playlist, "num_tracks", 0) > 0:
-            existing_tidal_ids = await _get_all_tidal_playlist_track_ids(
-                engine, tidal_playlist
-            )
-            logger.info(
-                f"Found {len(existing_tidal_ids)} existing tracks in Tidal playlist"
-            )
+            existing_tidal_ids = await _get_all_tidal_playlist_track_ids(engine, tidal_playlist)
+            logger.info(f"Found {len(existing_tidal_ids)} existing tracks in Tidal playlist")
 
         if engine.library:
             engine.library.add_tracks(spotify_tracks)
@@ -77,13 +75,9 @@ async def sync_playlist(
 
         if new_ids:
             chunk_size = 50
-            chunks = [
-                new_ids[i : i + chunk_size] for i in range(0, len(new_ids), chunk_size)
-            ]
-            for chunk in engine._progress_iter(
-                chunks, "Adding to playlist", phase="adding"
-            ):
-                tidal_playlist.add(chunk)
+            chunks = [new_ids[i : i + chunk_size] for i in range(0, len(new_ids), chunk_size)]
+            for chunk in engine._progress_iter(chunks, "Adding to playlist", phase="adding"):
+                await retry_async_call(tidal_playlist.add, chunk)
             logger.info(f"Added {len(new_ids)} new tracks to Tidal playlist")
         else:
             logger.info("No new tracks to add")
@@ -103,7 +97,7 @@ async def sync_playlist(
 async def sync_all_playlists(engine) -> dict:
     """Sync all user-accessible Spotify playlists to Tidal."""
     playlists = await engine.spotify_fetcher.get_playlists(limit=engine._item_limit)
-    user_id = engine.spotify.current_user()["id"]
+    user_id = (await retry_async_call(engine.spotify.current_user))["id"]
 
     results: dict = {}
 
@@ -132,18 +126,14 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
         engine._report_progress(event="phase", phase="fetching")
 
         playlist_name = getattr(tidal_playlist, "name", None) or "Tidal Playlist"
-        spotify_playlist_id = await _find_or_create_spotify_playlist(
-            engine, playlist_name
-        )
+        spotify_playlist_id = await _find_or_create_spotify_playlist(engine, playlist_name)
 
         tidal_tracks = await engine.tidal_fetcher.get_playlist_tracks(tidal_playlist)
         tidal_tracks = engine._apply_limit(tidal_tracks)
         if not tidal_tracks:
             return 0, 0
 
-        existing_spotify_ids = await _get_spotify_playlist_track_ids(
-            engine, spotify_playlist_id
-        )
+        existing_spotify_ids = await _get_spotify_playlist_track_ids(engine, spotify_playlist_id)
 
         searcher = SpotifySearcher(engine.spotify, engine.cache, engine.rate_limiter)
 
@@ -160,8 +150,7 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
                 if engine.library:
                     try:
                         artists = ", ".join(
-                            a.name
-                            for a in (getattr(tidal_track, "artists", None) or [])
+                            a.name for a in (getattr(tidal_track, "artists", None) or [])
                         )
                         album_name = (
                             getattr(getattr(tidal_track, "album", None), "name", "")
@@ -186,9 +175,7 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
             engine._report_progress(event="item", matched=True)
             spotify_ids_in_order.append(spotify_id)
 
-        to_add = [
-            sid for sid in spotify_ids_in_order if sid not in existing_spotify_ids
-        ]
+        to_add = [sid for sid in spotify_ids_in_order if sid not in existing_spotify_ids]
         if not to_add:
             return 0, not_found
 
@@ -196,10 +183,8 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
 
         chunk_size = 100
         chunks = [to_add[i : i + chunk_size] for i in range(0, len(to_add), chunk_size)]
-        for chunk in engine._progress_iter(
-            chunks, "Adding to Spotify playlist", phase="adding"
-        ):
-            engine.spotify.playlist_add_items(spotify_playlist_id, chunk)
+        for chunk in engine._progress_iter(chunks, "Adding to Spotify playlist", phase="adding"):
+            await retry_async_call(engine.spotify.playlist_add_items, spotify_playlist_id, chunk)
 
         return len(to_add), not_found
     finally:
@@ -228,26 +213,24 @@ async def _get_spotify_playlist_tracks(engine, playlist_id: str) -> List[dict]:
     return await engine.spotify_fetcher.get_playlist_tracks(playlist_id)
 
 
-async def _get_all_tidal_playlist_track_ids(
-    engine, playlist: tidalapi.Playlist
-) -> Set[int]:
+async def _get_all_tidal_playlist_track_ids(engine, playlist: tidalapi.Playlist) -> Set[int]:
     return await engine.tidal_fetcher.get_playlist_track_ids(playlist)
 
 
 async def _get_or_create_tidal_playlist(engine, name: str) -> tidalapi.Playlist:
-    playlists = engine.tidal.user.playlists()
+    playlists = await retry_async_call(engine.tidal.user.playlists)
     for playlist in playlists:
         if playlist.name == name:
             return playlist
 
-    return engine.tidal.user.create_playlist(name, "")
+    return await retry_async_call(engine.tidal.user.create_playlist, name, "")
 
 
 async def _get_spotify_playlist_track_ids(engine, playlist_id: str) -> Set[str]:
     existing: Set[str] = set()
     try:
-        results = engine.spotify.playlist_items(
-            playlist_id, fields="items(track(id,type)),next"
+        results = await retry_async_call(
+            engine.spotify.playlist_items, playlist_id, fields="items(track(id,type)),next"
         )
         while True:
             for item in results.get("items", []):
@@ -257,7 +240,7 @@ async def _get_spotify_playlist_track_ids(engine, playlist_id: str) -> Set[str]:
 
             if not results.get("next"):
                 break
-            results = engine.spotify.next(results)
+            results = await retry_async_call(engine.spotify.next, results)
     except Exception as e:
         logger.warning(f"Could not fetch Spotify playlist tracks for dedupe: {e}")
 
@@ -265,22 +248,19 @@ async def _get_spotify_playlist_track_ids(engine, playlist_id: str) -> Set[str]:
 
 
 async def _find_or_create_spotify_playlist(engine, name: str) -> str:
-    user = engine.spotify.current_user()
+    user = await retry_async_call(engine.spotify.current_user)
     user_id = user["id"]
 
-    results = engine.spotify.current_user_playlists()
+    results = await retry_async_call(engine.spotify.current_user_playlists)
     while True:
         for playlist in results.get("items", []):
-            if (
-                playlist.get("name") == name
-                and playlist.get("owner", {}).get("id") == user_id
-            ):
+            if playlist.get("name") == name and playlist.get("owner", {}).get("id") == user_id:
                 return playlist["id"]
         if not results.get("next"):
             break
-        results = engine.spotify.next(results)
+        results = await retry_async_call(engine.spotify.next, results)
 
-    created = engine.spotify.user_playlist_create(
-        user=user_id, name=name, public=False, description=""
+    created = await retry_async_call(
+        engine.spotify.user_playlist_create, user=user_id, name=name, public=False, description=""
     )
     return created["id"]
