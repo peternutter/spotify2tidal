@@ -171,7 +171,12 @@ class AppleMusicClient:
     def get_playlist_tracks(self, playlist_id: str, limit: Optional[int] = None) -> List[dict]:
         """Get all tracks in a library playlist."""
         url = f"{BASE_URL}/v1/me/library/playlists/{playlist_id}/tracks?limit=100"
-        return self._get_paginated(url, limit=limit)
+        try:
+            return self._get_paginated(url, limit=limit)
+        except AppleMusicAPIError as e:
+            if "404" in str(e):
+                return []  # Empty playlist
+            raise
 
     def get_library_song_ids(self) -> Set[str]:
         """Get catalog IDs of all songs in the user's library."""
