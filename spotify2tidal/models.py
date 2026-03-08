@@ -19,6 +19,7 @@ class LibraryItem:
     isrc: Optional[str] = None
     spotify_id: Optional[str] = None
     tidal_id: Optional[int] = None
+    apple_music_id: Optional[str] = None
     added_at: Optional[str] = None
     source: Optional[str] = None
     synced_to: Set[str] = field(default_factory=set)
@@ -35,6 +36,7 @@ class LibraryItem:
             "isrc": self.isrc,
             "spotify_id": self.spotify_id,
             "tidal_id": self.tidal_id,
+            "apple_music_id": self.apple_music_id,
             "added_at": self.added_at,
             "source": self.source,
             "synced_to": list(self.synced_to),
@@ -65,6 +67,7 @@ class Track(LibraryItem):
             isrc=data.get("isrc"),
             spotify_id=data.get("spotify_id"),
             tidal_id=data.get("tidal_id"),
+            apple_music_id=data.get("apple_music_id"),
             added_at=data.get("added_at"),
             source=data.get("source"),
         )
@@ -109,6 +112,25 @@ class Track(LibraryItem):
         track.synced_to.add("tidal")
         return track
 
+    @classmethod
+    def from_apple_music(cls, am_song: dict) -> "Track":
+        """Create Track from Apple Music API response dict."""
+        attrs = am_song.get("attributes", {})
+        artist_name = attrs.get("artistName", "")
+        artists = [a.strip() for a in artist_name.split("&")] if artist_name else []
+
+        track = cls(
+            name=attrs.get("name", ""),
+            artists=artists,
+            album=attrs.get("albumName", ""),
+            duration_ms=attrs.get("durationInMillis", 0),
+            isrc=attrs.get("isrc"),
+            apple_music_id=am_song.get("id"),
+            source="apple_music",
+        )
+        track.synced_to.add("apple_music")
+        return track
+
 
 @dataclass
 class Album(LibraryItem):
@@ -133,6 +155,7 @@ class Album(LibraryItem):
             total_tracks=data.get("total_tracks", 0),
             spotify_id=data.get("spotify_id"),
             tidal_id=data.get("tidal_id"),
+            apple_music_id=data.get("apple_music_id"),
             added_at=data.get("added_at"),
             source=data.get("source"),
         )
@@ -174,6 +197,24 @@ class Album(LibraryItem):
         album.synced_to.add("tidal")
         return album
 
+    @classmethod
+    def from_apple_music(cls, am_album: dict) -> "Album":
+        """Create Album from Apple Music API response dict."""
+        attrs = am_album.get("attributes", {})
+        artist_name = attrs.get("artistName", "")
+        artists = [a.strip() for a in artist_name.split("&")] if artist_name else []
+
+        album = cls(
+            name=attrs.get("name", ""),
+            artists=artists,
+            release_date=attrs.get("releaseDate", ""),
+            total_tracks=attrs.get("trackCount", 0),
+            apple_music_id=am_album.get("id"),
+            source="apple_music",
+        )
+        album.synced_to.add("apple_music")
+        return album
+
 
 @dataclass
 class Artist(LibraryItem):
@@ -201,6 +242,7 @@ class Artist(LibraryItem):
             genres=data.get("genres", []),
             spotify_id=data.get("spotify_id"),
             tidal_id=data.get("tidal_id"),
+            apple_music_id=data.get("apple_music_id"),
             added_at=data.get("added_at"),
             source=data.get("source"),
         )
@@ -231,6 +273,22 @@ class Artist(LibraryItem):
             source="tidal",
         )
         artist.synced_to.add("tidal")
+        return artist
+
+    @classmethod
+    def from_apple_music(cls, am_artist: dict) -> "Artist":
+        """Create Artist from Apple Music API response dict."""
+        attrs = am_artist.get("attributes", {})
+        name = attrs.get("name", "")
+
+        artist = cls(
+            name=name,
+            artists=[name],
+            genres=attrs.get("genreNames", []),
+            apple_music_id=am_artist.get("id"),
+            source="apple_music",
+        )
+        artist.synced_to.add("apple_music")
         return artist
 
 

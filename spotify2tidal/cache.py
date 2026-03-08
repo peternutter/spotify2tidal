@@ -28,7 +28,15 @@ class MatchCache:
         self._reverse_track_matches: dict[int, str] = {}
         self._reverse_album_matches: dict[int, str] = {}
         self._reverse_artist_matches: dict[int, str] = {}
-        # Failures cache (works for both directions)
+        # Apple Music mappings: Spotify ID -> Apple Music ID (str)
+        self._apple_track_matches: dict[str, str] = {}
+        self._apple_album_matches: dict[str, str] = {}
+        self._apple_artist_matches: dict[str, str] = {}
+        # Reverse Apple Music mappings: Apple Music ID -> Spotify ID
+        self._reverse_apple_track_matches: dict[str, str] = {}
+        self._reverse_apple_album_matches: dict[str, str] = {}
+        self._reverse_apple_artist_matches: dict[str, str] = {}
+        # Failures cache (works for all directions)
         self._failures: dict[str, str] = {}  # id_key -> retry_after ISO string
 
         # Load from file if it exists
@@ -58,6 +66,13 @@ class MatchCache:
             self._reverse_artist_matches = {
                 int(k): v for k, v in data.get("reverse_artists", {}).items()
             }
+            # Load Apple Music mappings
+            self._apple_track_matches = data.get("apple_tracks", {})
+            self._apple_album_matches = data.get("apple_albums", {})
+            self._apple_artist_matches = data.get("apple_artists", {})
+            self._reverse_apple_track_matches = data.get("reverse_apple_tracks", {})
+            self._reverse_apple_album_matches = data.get("reverse_apple_albums", {})
+            self._reverse_apple_artist_matches = data.get("reverse_apple_artists", {})
             # Build reverse from forward if not present
             if not self._reverse_track_matches:
                 self._build_reverse_cache()
@@ -75,15 +90,15 @@ class MatchCache:
             "tracks": self._track_matches,
             "albums": self._album_matches,
             "artists": self._artist_matches,
-            "reverse_tracks": {
-                str(k): v for k, v in self._reverse_track_matches.items()
-            },
-            "reverse_albums": {
-                str(k): v for k, v in self._reverse_album_matches.items()
-            },
-            "reverse_artists": {
-                str(k): v for k, v in self._reverse_artist_matches.items()
-            },
+            "reverse_tracks": {str(k): v for k, v in self._reverse_track_matches.items()},
+            "reverse_albums": {str(k): v for k, v in self._reverse_album_matches.items()},
+            "reverse_artists": {str(k): v for k, v in self._reverse_artist_matches.items()},
+            "apple_tracks": self._apple_track_matches,
+            "apple_albums": self._apple_album_matches,
+            "apple_artists": self._apple_artist_matches,
+            "reverse_apple_tracks": self._reverse_apple_track_matches,
+            "reverse_apple_albums": self._reverse_apple_album_matches,
+            "reverse_apple_artists": self._reverse_apple_artist_matches,
             "failures": self._failures,
         }
 
@@ -154,6 +169,56 @@ class MatchCache:
         self._artist_matches[spotify_id] = tidal_id
         self._auto_save()
 
+    # =========================================================================
+    # Apple Music lookups (Spotify -> Apple Music)
+    # =========================================================================
+
+    def get_apple_track_match(self, spotify_id: str) -> Optional[str]:
+        """Get cached Apple Music track ID for a Spotify track."""
+        return self._apple_track_matches.get(spotify_id)
+
+    def cache_apple_track_match(self, spotify_id: str, apple_id: str):
+        """Cache a successful Spotify->Apple Music track match."""
+        self._apple_track_matches[spotify_id] = apple_id
+        self._reverse_apple_track_matches[apple_id] = spotify_id
+        self._auto_save()
+
+    def get_apple_album_match(self, spotify_id: str) -> Optional[str]:
+        """Get cached Apple Music album ID for a Spotify album."""
+        return self._apple_album_matches.get(spotify_id)
+
+    def cache_apple_album_match(self, spotify_id: str, apple_id: str):
+        """Cache a successful Spotify->Apple Music album match."""
+        self._apple_album_matches[spotify_id] = apple_id
+        self._reverse_apple_album_matches[apple_id] = spotify_id
+        self._auto_save()
+
+    def get_apple_artist_match(self, spotify_id: str) -> Optional[str]:
+        """Get cached Apple Music artist ID for a Spotify artist."""
+        return self._apple_artist_matches.get(spotify_id)
+
+    def cache_apple_artist_match(self, spotify_id: str, apple_id: str):
+        """Cache a successful Spotify->Apple Music artist match."""
+        self._apple_artist_matches[spotify_id] = apple_id
+        self._reverse_apple_artist_matches[apple_id] = spotify_id
+        self._auto_save()
+
+    # =========================================================================
+    # Reverse Apple Music lookups (Apple Music -> Spotify)
+    # =========================================================================
+
+    def get_spotify_from_apple_track(self, apple_id: str) -> Optional[str]:
+        """Get cached Spotify track ID for an Apple Music track."""
+        return self._reverse_apple_track_matches.get(apple_id)
+
+    def get_spotify_from_apple_album(self, apple_id: str) -> Optional[str]:
+        """Get cached Spotify album ID for an Apple Music album."""
+        return self._reverse_apple_album_matches.get(apple_id)
+
+    def get_spotify_from_apple_artist(self, apple_id: str) -> Optional[str]:
+        """Get cached Spotify artist ID for an Apple Music artist."""
+        return self._reverse_apple_artist_matches.get(apple_id)
+
     def _build_reverse_cache(self):
         """Build reverse mappings from forward mappings."""
         for spotify_id, tidal_id in self._track_matches.items():
@@ -213,6 +278,12 @@ class MatchCache:
         self._reverse_track_matches.clear()
         self._reverse_album_matches.clear()
         self._reverse_artist_matches.clear()
+        self._apple_track_matches.clear()
+        self._apple_album_matches.clear()
+        self._apple_artist_matches.clear()
+        self._reverse_apple_track_matches.clear()
+        self._reverse_apple_album_matches.clear()
+        self._reverse_apple_artist_matches.clear()
         self._failures.clear()
         self._auto_save()
 
@@ -223,6 +294,8 @@ class MatchCache:
             "cached_album_matches": len(self._album_matches),
             "cached_artist_matches": len(self._artist_matches),
             "cached_reverse_track_matches": len(self._reverse_track_matches),
+            "cached_apple_track_matches": len(self._apple_track_matches),
+            "cached_apple_album_matches": len(self._apple_album_matches),
             "cached_failures": len(self._failures),
         }
 

@@ -1,5 +1,5 @@
 """
-Authentication helpers for Spotify and Tidal.
+Authentication helpers for Spotify, Tidal, and Apple Music.
 """
 
 import logging
@@ -11,6 +11,8 @@ from typing import Optional
 import spotipy
 import tidalapi
 from spotipy.oauth2 import SpotifyOAuth
+
+from .apple_music_client import AppleMusicClient
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +28,7 @@ SPOTIFY_SCOPES = (
 )
 
 
-def open_spotify_session(
-    config: dict, cache_path: Optional[str] = None
-) -> spotipy.Spotify:
+def open_spotify_session(config: dict, cache_path: Optional[str] = None) -> spotipy.Spotify:
     """
     Open a Spotify session using OAuth.
 
@@ -45,9 +45,7 @@ def open_spotify_session(
     """
     # Allow environment variables to override config
     client_id = config.get("client_id") or os.environ.get("SPOTIFY_CLIENT_ID")
-    client_secret = config.get("client_secret") or os.environ.get(
-        "SPOTIFY_CLIENT_SECRET"
-    )
+    client_secret = config.get("client_secret") or os.environ.get("SPOTIFY_CLIENT_SECRET")
     redirect_uri = config.get("redirect_uri", "http://127.0.0.1:8888/callback")
 
     if not client_id or not client_secret:
@@ -134,3 +132,56 @@ def open_tidal_session(
         return session
     else:
         raise ValueError("Could not connect to Tidal")
+
+
+def open_apple_music_session(config: dict) -> AppleMusicClient:
+    """
+    Open an Apple Music session using browser-extracted tokens.
+
+    Config can contain:
+        - bearer_token: Authorization Bearer token from browser DevTools
+        - media_user_token: Media-User-Token header from browser DevTools
+        - cookies: Cookie header from browser DevTools
+        - storefront: 2-letter country code (default: "us")
+
+    Tokens can also be set via environment variables:
+        APPLE_MUSIC_BEARER_TOKEN, APPLE_MUSIC_USER_TOKEN,
+        APPLE_MUSIC_COOKIES, APPLE_MUSIC_STOREFRONT
+    """
+    bearer_token = config.get("bearer_token") or os.environ.get("APPLE_MUSIC_BEARER_TOKEN", "")
+    media_user_token = config.get("media_user_token") or os.environ.get(
+        "APPLE_MUSIC_USER_TOKEN", ""
+    )
+    cookies = config.get("cookies") or os.environ.get("APPLE_MUSIC_COOKIES", "")
+    storefront = config.get("storefront") or os.environ.get("APPLE_MUSIC_STOREFRONT", "us")
+
+    if not bearer_token or not media_user_token:
+        raise ValueError(
+            "Apple Music bearer_token and media_user_token are required.\n\n"
+            "To get them:\n"
+            "  1. Open https://music.apple.com in your browser and sign in\n"
+            "  2. Open DevTools (F12) → Network tab\n"
+            "  3. Navigate to https://buy.music.apple.com/account/web/info\n"
+            "  4. Find the request and copy these headers:\n"
+            "     - Authorization (the Bearer token)\n"
+            "     - Media-User-Token\n"
+            "     - Cookie\n"
+            "  5. Set them in config.yml under apple_music: or via env vars\n"
+        )
+
+    client = AppleMusicClient(
+        bearer_token=bearer_token,
+        media_user_token=media_user_token,
+        cookies=cookies,
+        storefront=storefront,
+    )
+
+    if not client.validate_session():
+        raise ValueError(
+            "Apple Music authentication failed. "
+            "Your tokens may have expired (they last ~6 months). "
+            "Re-extract them from browser DevTools."
+        )
+
+    logger.info("Apple Music session validated successfully")
+    return client

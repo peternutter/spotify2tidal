@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from .auth import open_spotify_session, open_tidal_session
+from .auth import open_apple_music_session, open_spotify_session, open_tidal_session
 from .cache import MatchCache
 from .logging_utils import SyncLogger, UserErrors
 from .sync_engine import SyncEngine
@@ -29,22 +29,24 @@ def load_config(config_path: str) -> dict:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser with all CLI options."""
     parser = argparse.ArgumentParser(
-        description="Sync your music library between Spotify and Tidal",
+        description="Sync your music library between Spotify, Tidal, and Apple Music",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples (Spotify → Tidal):
   spotify2tidal --favorites         # Sync liked/saved tracks to Tidal
   spotify2tidal --albums            # Sync saved albums to Tidal
-  spotify2tidal --artists           # Sync followed artists to Tidal
   spotify2tidal --playlists         # Sync all playlists to Tidal
   spotify2tidal --all               # Sync everything to Tidal
 
 Examples (Tidal → Spotify):
-    spotify2tidal --to-spotify --playlists  # Sync all playlists to Spotify
   spotify2tidal --to-spotify --favorites   # Sync Tidal favorites to Spotify
-  spotify2tidal --to-spotify --albums      # Sync Tidal albums to Spotify
-  spotify2tidal --to-spotify --artists     # Sync Tidal artists to Spotify
   spotify2tidal --to-spotify --all         # Sync everything to Spotify
+
+Examples (Spotify → Apple Music):
+  spotify2tidal --to-apple-music --favorites  # Sync liked tracks to Apple Music
+  spotify2tidal --to-apple-music --albums     # Sync saved albums to Apple Music
+  spotify2tidal --to-apple-music --playlists  # Sync all playlists to Apple Music
+  spotify2tidal --to-apple-music --all        # Sync everything to Apple Music
 
 Library Management:
   spotify2tidal --status            # Show library coverage on each platform
@@ -64,9 +66,7 @@ Tips:
         default="config.yml",
         help="Path to config file (default: config.yml)",
     )
-    parser.add_argument(
-        "--playlist", "-p", help="Sync a specific Spotify playlist (ID or URI)"
-    )
+    parser.add_argument("--playlist", "-p", help="Sync a specific Spotify playlist (ID or URI)")
     parser.add_argument(
         "--favorites",
         "-f",
@@ -79,9 +79,7 @@ Tips:
         help="Sync all user playlists",
     )
     parser.add_argument("--albums", "-a", action="store_true", help="Sync saved albums")
-    parser.add_argument(
-        "--artists", "-r", action="store_true", help="Sync followed artists"
-    )
+    parser.add_argument("--artists", "-r", action="store_true", help="Sync followed artists")
     parser.add_argument(
         "--podcasts",
         action="store_true",
@@ -93,9 +91,7 @@ Tips:
         dest="sync_all",
         help="Sync everything (playlists, favorites, albums, artists, podcasts)",
     )
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose debug output"
-    )
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose debug output")
     parser.add_argument(
         "--quiet",
         "-q",
@@ -108,11 +104,16 @@ Tips:
         help="Disable colored output",
     )
 
-    # Reverse sync options (Tidal → Spotify)
+    # Sync direction options
     parser.add_argument(
         "--to-spotify",
         action="store_true",
-        help="Reverse sync direction: sync FROM Tidal TO Spotify",
+        help="Sync direction: FROM Tidal TO Spotify",
+    )
+    parser.add_argument(
+        "--to-apple-music",
+        action="store_true",
+        help="Sync direction: FROM Spotify TO Apple Music",
     )
     parser.add_argument(
         "--export-tidal",
@@ -140,13 +141,15 @@ def print_header(logger: SyncLogger, direction: str = "to_tidal"):
     logger.info("━" * 50)
     if direction == "to_spotify":
         logger.info("🎵 Tidal → Spotify Sync")
+    elif direction == "to_apple_music":
+        logger.info("🎵 Spotify → Apple Music Sync")
     else:
         logger.info("🎵 Spotify → Tidal Sync")
     logger.info("━" * 50)
 
 
 async def show_library_status(engine: SyncEngine, logger: SyncLogger):
-    """Show library coverage status on both platforms."""
+    """Show library coverage status on connected platforms."""
     logger.info("")
     logger.info("━" * 50)
     logger.info("📊 Library Status")
@@ -158,32 +161,35 @@ async def show_library_status(engine: SyncEngine, logger: SyncLogger):
     spotify_albums = await engine._get_all_spotify_saved_album_ids()
     spotify_artists = await engine._get_all_spotify_followed_artist_ids()
 
-    # Get Tidal counts
-    logger.progress("Fetching Tidal library...")
-    tidal_track_ids = await engine._get_all_tidal_favorite_track_ids()
-    tidal_album_ids = await engine._get_all_tidal_favorite_album_ids()
-    tidal_artist_ids = await engine._get_all_tidal_favorite_artist_ids()
-
-    # Get cached matches
-    cache_stats = engine.cache.get_stats()
-
     logger.info("")
     logger.info("📱 Spotify Library:")
     logger.info(f"   Tracks:  {len(spotify_tracks)}")
     logger.info(f"   Albums:  {len(spotify_albums)}")
     logger.info(f"   Artists: {len(spotify_artists)}")
 
-    logger.info("")
-    logger.info("🎧 Tidal Library:")
-    logger.info(f"   Tracks:  {len(tidal_track_ids)}")
-    logger.info(f"   Albums:  {len(tidal_album_ids)}")
-    logger.info(f"   Artists: {len(tidal_artist_ids)}")
+    # Get Tidal counts (if connected)
+    if engine.tidal_fetcher:
+        logger.progress("Fetching Tidal library...")
+        tidal_track_ids = await engine._get_all_tidal_favorite_track_ids()
+        tidal_album_ids = await engine._get_all_tidal_favorite_album_ids()
+        tidal_artist_ids = await engine._get_all_tidal_favorite_artist_ids()
+
+        logger.info("")
+        logger.info("🎧 Tidal Library:")
+        logger.info(f"   Tracks:  {len(tidal_track_ids)}")
+        logger.info(f"   Albums:  {len(tidal_album_ids)}")
+        logger.info(f"   Artists: {len(tidal_artist_ids)}")
+
+    # Get cached matches
+    cache_stats = engine.cache.get_stats()
 
     logger.info("")
     logger.info("🔗 Cached Matches:")
-    logger.info(f"   Track matches:  {cache_stats['cached_track_matches']}")
-    logger.info(f"   Album matches:  {cache_stats['cached_album_matches']}")
-    logger.info(f"   Artist matches: {cache_stats['cached_artist_matches']}")
+    logger.info(f"   Spotify↔Tidal tracks:  {cache_stats['cached_track_matches']}")
+    logger.info(f"   Spotify↔Tidal albums:  {cache_stats['cached_album_matches']}")
+    logger.info(f"   Spotify→Apple tracks:  {cache_stats['cached_apple_track_matches']}")
+    logger.info(f"   Spotify→Apple albums:  {cache_stats['cached_apple_album_matches']}")
+    logger.info(f"   Cached failures:       {cache_stats['cached_failures']}")
     logger.info("━" * 50)
 
 
@@ -209,9 +215,7 @@ def print_summary(results: dict, logger: SyncLogger):
         elif isinstance(data, dict):
             # Playlist results: dict of playlist_name -> {added, not_found}
             added = sum(d.get("added", 0) for d in data.values() if isinstance(d, dict))
-            not_found = sum(
-                d.get("not_found", 0) for d in data.values() if isinstance(d, dict)
-            )
+            not_found = sum(d.get("not_found", 0) for d in data.values() if isinstance(d, dict))
             total_added += added
             total_not_found += not_found
             logger.info(f"  {category.title()}: {added} added, {not_found} not found")
@@ -219,7 +223,7 @@ def print_summary(results: dict, logger: SyncLogger):
     logger.info("━" * 50)
     if total_not_found > 0:
         logger.warning(
-            f"  {total_not_found} items could not be found on Tidal. "
+            f"  {total_not_found} items could not be found on the target platform. "
             "Check library/not_found_*.csv for details."
         )
 
@@ -236,31 +240,35 @@ def main():
         use_color=not args.no_color,
     )
 
-    print_header(logger, direction="to_spotify" if args.to_spotify else "to_tidal")
+    # Determine direction
+    if args.to_apple_music:
+        direction = "to_apple_music"
+    elif args.to_spotify:
+        direction = "to_spotify"
+    else:
+        direction = "to_tidal"
+
+    print_header(logger, direction=direction)
 
     # Load config
     config = load_config(args.config)
     if not config and not Path(args.config).exists():
         if args.config != "config.yml":
-            # User specified a config file that doesn't exist
             logger.error(UserErrors.config_not_found(args.config))
             sys.exit(1)
         else:
             logger.debug("No config.yml found, using environment variables")
 
-    # Connect to Spotify
+    # Connect to Spotify (always needed as source)
     logger.progress("Connecting to Spotify...")
     library_config = config.get("library", {})
     library_dir = Path(library_config.get("export_dir", "./library"))
     library_dir.mkdir(parents=True, exist_ok=True)
 
-    # Store Spotify cache in library directory
     spotify_cache_path = str(library_dir / ".spotify_cache")
 
     try:
-        spotify = open_spotify_session(
-            config.get("spotify", {}), cache_path=spotify_cache_path
-        )
+        spotify = open_spotify_session(config.get("spotify", {}), cache_path=spotify_cache_path)
         user = spotify.current_user()
         username = user["display_name"] or user["id"]
         logger.success(f"Connected to Spotify as {username}")
@@ -274,21 +282,36 @@ def main():
             logger.error(UserErrors.spotify_auth_failed(str(e)))
         sys.exit(1)
 
-    # Connect to Tidal - store session in library directory
-    logger.progress("Connecting to Tidal...")
-    tidal_session_path = str(library_dir / ".tidal_session.json")
+    # Connect to target platform
+    tidal = None
+    apple_music_client = None
 
-    try:
-        tidal = open_tidal_session(
-            config.get("tidal", {}), session_file=tidal_session_path
-        )
-        if not tidal.check_login():
-            logger.error(UserErrors.tidal_auth_failed("Login check failed"))
+    if direction == "to_apple_music":
+        # Connect to Apple Music
+        logger.progress("Connecting to Apple Music...")
+        try:
+            apple_music_client = open_apple_music_session(config.get("apple_music", {}))
+            logger.success("Connected to Apple Music")
+        except ValueError as e:
+            logger.error(str(e))
             sys.exit(1)
-        logger.success("Connected to Tidal")
-    except Exception as e:
-        logger.error(UserErrors.tidal_auth_failed(str(e)))
-        sys.exit(1)
+        except Exception as e:
+            logger.error(f"Apple Music connection failed: {e}")
+            sys.exit(1)
+    else:
+        # Connect to Tidal (for to_tidal and to_spotify directions)
+        logger.progress("Connecting to Tidal...")
+        tidal_session_path = str(library_dir / ".tidal_session.json")
+
+        try:
+            tidal = open_tidal_session(config.get("tidal", {}), session_file=tidal_session_path)
+            if not tidal.check_login():
+                logger.error(UserErrors.tidal_auth_failed("Login check failed"))
+                sys.exit(1)
+            logger.success("Connected to Tidal")
+        except Exception as e:
+            logger.error(UserErrors.tidal_auth_failed(str(e)))
+            sys.exit(1)
 
     # Create sync engine with cache in library directory
     sync_config = config.get("sync", {})
@@ -298,7 +321,8 @@ def main():
 
     engine = SyncEngine(
         spotify,
-        tidal,
+        tidal=tidal,
+        apple_music=apple_music_client,
         max_concurrent=sync_config.get("max_concurrent", 10),
         rate_limit=sync_config.get("rate_limit", 10),
         library_dir=str(library_dir),
@@ -372,6 +396,49 @@ def main():
                 logger.warning(
                     "Use --to-spotify with --favorites, --albums, "
                     "--artists, --playlists, or --all"
+                )
+                return {}
+
+            return results
+
+        # Apple Music sync: Spotify -> Apple Music
+        if args.to_apple_music:
+            if args.sync_all:
+                logger.progress("Syncing liked songs to Apple Music...")
+                added, nf = await engine.sync_favorites_to_apple_music()
+                results["favorites"] = {"added": added, "not_found": nf}
+
+                logger.progress("Syncing all playlists to Apple Music...")
+                results["playlists"] = await engine.sync_all_playlists_to_apple_music()
+
+                logger.progress("Syncing saved albums to Apple Music...")
+                added, nf = await engine.sync_albums_to_apple_music()
+                results["albums"] = {"added": added, "not_found": nf}
+
+            elif args.favorites:
+                logger.progress("Syncing liked songs to Apple Music...")
+                added, not_found = await engine.sync_favorites_to_apple_music()
+                results["favorites"] = {"added": added, "not_found": not_found}
+
+            elif args.playlists:
+                logger.progress("Syncing all playlists to Apple Music...")
+                results["playlists"] = await engine.sync_all_playlists_to_apple_music()
+
+            elif args.albums:
+                logger.progress("Syncing saved albums to Apple Music...")
+                added, not_found = await engine.sync_albums_to_apple_music()
+                results["albums"] = {"added": added, "not_found": not_found}
+
+            elif args.playlist:
+                playlist_id = args.playlist.split(":")[-1]
+                logger.progress(f"Syncing playlist to Apple Music: {playlist_id}")
+                added, not_found = await engine.sync_playlist_to_apple_music(playlist_id)
+                results["playlist"] = {"added": added, "not_found": not_found}
+
+            else:
+                logger.warning(
+                    "Use --to-apple-music with --favorites, --albums, "
+                    "--playlists, --playlist <id>, or --all"
                 )
                 return {}
 
@@ -461,14 +528,15 @@ def main():
                 if args.podcasts:
                     categories.append("podcasts")
 
-            # Auto-export backup snapshot
-            logger.progress("Exporting backup snapshot...")
-            export_result = asyncio.run(engine.export_backup(categories=categories))
-            if export_result.get("files"):
-                export_dir = engine.library.export_dir
-                logger.success(f"Backup exported to: {export_dir}")
-                for name, path in export_result["files"].items():
-                    logger.debug(f"  - {name}: {path}")
+            # Auto-export backup snapshot (only when Tidal is connected)
+            if engine.tidal:
+                logger.progress("Exporting backup snapshot...")
+                export_result = asyncio.run(engine.export_backup(categories=categories))
+                if export_result.get("files"):
+                    export_dir = engine.library.export_dir
+                    logger.success(f"Backup exported to: {export_dir}")
+                    for name, path in export_result["files"].items():
+                        logger.debug(f"  - {name}: {path}")
 
     except KeyboardInterrupt:
         logger.warning("Sync cancelled by user")

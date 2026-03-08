@@ -20,6 +20,21 @@ tidal:
   # Default: library/.tidal_session.json (same as export_dir)
   # session_file: /path/to/tidal_session.json
 
+# Apple Music (optional - only needed for --to-apple-music)
+# To get these tokens:
+#   1. Open https://music.apple.com in your browser and sign in
+#   2. Open DevTools (F12) → Network tab
+#   3. Navigate to https://buy.music.apple.com/account/web/info
+#   4. Find the request and copy these headers:
+#      - Authorization → bearer_token (the part after "Bearer ")
+#      - Media-User-Token → media_user_token
+#      - Cookie → cookies
+# apple_music:
+#   bearer_token: "your_bearer_token_here"
+#   media_user_token: "your_media_user_token_here"
+#   cookies: "your_cookies_here"
+#   storefront: "us"  # 2-letter country code
+
 sync:
   # Maximum concurrent API requests
   max_concurrent: 10

@@ -11,14 +11,12 @@ import logging
 from typing import TYPE_CHECKING, Callable, List, Optional, Set, Tuple
 
 import spotipy
-import tidalapi
 from tqdm import tqdm
 
 from .cache import MatchCache
-from .fetchers import SpotifyFetcher, TidalFetcher
+from .fetchers import SpotifyFetcher
 from .library_exporter import LibraryExporter
 from .rate_limiter import RateLimiter
-from .searcher import TidalSearcher
 from .sync_backup import export_backup as _export_backup
 from .sync_backup import export_tidal_library as _export_tidal_library
 from .sync_operations import SyncConfig, sync_items, sync_items_batched
@@ -36,18 +34,22 @@ from .sync_playlists import (
 )
 
 if TYPE_CHECKING:
+    import tidalapi
+
+    from .apple_music_client import AppleMusicClient
     from .logging_utils import SyncLogger
 
 logger = logging.getLogger(__name__)
 
 
 class SyncEngine:
-    """Main sync engine for transferring between Spotify and Tidal."""
+    """Main sync engine for transferring between music platforms."""
 
     def __init__(
         self,
         spotify: spotipy.Spotify,
-        tidal: tidalapi.Session,
+        tidal: Optional["tidalapi.Session"] = None,
+        apple_music: Optional["AppleMusicClient"] = None,
         max_concurrent: int = 10,
         rate_limit: float = 10,
         library_dir: Optional[str] = "./library",
@@ -59,9 +61,36 @@ class SyncEngine:
     ):
         self.spotify = spotify
         self.tidal = tidal
+        self.apple_music = apple_music
         self.cache = cache or MatchCache()
         self.rate_limiter = rate_limiter or RateLimiter(max_concurrent, rate_limit)
-        self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
+
+        # Tidal components (optional)
+        self.searcher = None
+        self.tidal_fetcher = None
+        if tidal:
+            from .fetchers import TidalFetcher
+            from .searcher import TidalSearcher
+
+            self.searcher = TidalSearcher(tidal, self.cache, self.rate_limiter)
+            self.tidal_fetcher = TidalFetcher(
+                tidal, progress_callback=lambda msg: self._log("progress", msg)
+            )
+
+        # Apple Music components (optional)
+        self.apple_music_searcher = None
+        self.apple_music_fetcher = None
+        if apple_music:
+            from .apple_music_searcher import AppleMusicSearcher
+            from .fetchers import AppleMusicFetcher
+
+            self.apple_music_searcher = AppleMusicSearcher(
+                apple_music, self.cache, self.rate_limiter
+            )
+            self.apple_music_fetcher = AppleMusicFetcher(
+                apple_music,
+                progress_callback=lambda msg: self._log("progress", msg),
+            )
 
         if library_dir is None:
             self.library = LibraryExporter(None, logger=logger)
@@ -74,11 +103,9 @@ class SyncEngine:
         self._progress_callback = progress_callback
         self._item_limit = item_limit
 
-        def log_progress(msg: str):
-            self._log("progress", msg)
-
-        self.spotify_fetcher = SpotifyFetcher(spotify, progress_callback=log_progress)
-        self.tidal_fetcher = TidalFetcher(tidal, progress_callback=log_progress)
+        self.spotify_fetcher = SpotifyFetcher(
+            spotify, progress_callback=lambda msg: self._log("progress", msg)
+        )
 
     def _log(self, level: str, message: str):
         if self._logger:
@@ -113,17 +140,30 @@ class SyncEngine:
     async def _fetch_spotify_saved_shows(self) -> List[dict]:
         return await self._fetch_with_limit(self.spotify_fetcher.get_saved_shows)
 
-    async def _fetch_tidal_favorite_tracks(self) -> List[tidalapi.Track]:
+    def _require_tidal(self):
+        """Raise if Tidal is not configured."""
+        if not self.tidal or not self.tidal_fetcher:
+            raise RuntimeError("Tidal session is required for this operation")
+
+    def _require_apple_music(self):
+        """Raise if Apple Music is not configured."""
+        if not self.apple_music or not self.apple_music_fetcher:
+            raise RuntimeError("Apple Music session is required for this operation")
+
+    async def _fetch_tidal_favorite_tracks(self) -> list:
+        self._require_tidal()
         return await self._fetch_with_limit(
             self.tidal_fetcher.get_favorite_tracks, use_limit_total=True
         )
 
-    async def _fetch_tidal_favorite_albums(self) -> List[tidalapi.Album]:
+    async def _fetch_tidal_favorite_albums(self) -> list:
+        self._require_tidal()
         return await self._fetch_with_limit(
             self.tidal_fetcher.get_favorite_albums, use_limit_total=True
         )
 
-    async def _fetch_tidal_favorite_artists(self) -> List[tidalapi.Artist]:
+    async def _fetch_tidal_favorite_artists(self) -> list:
+        self._require_tidal()
         return await self._fetch_with_limit(
             self.tidal_fetcher.get_favorite_artists, use_limit_total=True
         )
@@ -149,6 +189,7 @@ class SyncEngine:
     # ---------------------------------------------------------------------
 
     async def sync_favorites(self) -> Tuple[int, int]:
+        self._require_tidal()
         return await sync_items(
             SyncConfig(
                 item_type="track",
@@ -166,6 +207,7 @@ class SyncEngine:
         )
 
     async def sync_albums(self) -> Tuple[int, int]:
+        self._require_tidal()
         return await sync_items(
             SyncConfig(
                 item_type="album",
@@ -183,6 +225,7 @@ class SyncEngine:
         )
 
     async def sync_artists(self) -> Tuple[int, int]:
+        self._require_tidal()
         return await sync_items(
             SyncConfig(
                 item_type="artist",
@@ -338,3 +381,127 @@ class SyncEngine:
 
     async def _get_all_spotify_followed_artist_ids(self) -> Set[str]:
         return await self.spotify_fetcher.get_followed_artist_ids()
+
+    # ---------------------------------------------------------------------
+    # Apple Music sync (Spotify -> Apple Music)
+    # ---------------------------------------------------------------------
+
+    async def sync_favorites_to_apple_music(self) -> Tuple[int, int]:
+        self._require_apple_music()
+
+        return await sync_items(
+            SyncConfig(
+                item_type="track",
+                fetch_source=self._fetch_spotify_saved_tracks,
+                fetch_existing_ids=self.apple_music_fetcher.get_library_song_ids,
+                search_item=self.apple_music_searcher.search_track,
+                get_source_id=lambda item: item.get("id"),
+                get_cache_match=self.cache.get_apple_track_match,
+                add_item=lambda apple_id: self.apple_music.add_songs_to_library([apple_id]),
+                add_to_library=self.library.add_tracks if self.library else None,
+                add_not_found=(self.library.add_not_found_track if self.library else None),
+                progress_desc="Syncing favorite tracks to Apple Music",
+            ),
+            self,
+        )
+
+    async def sync_albums_to_apple_music(self) -> Tuple[int, int]:
+        self._require_apple_music()
+
+        return await sync_items(
+            SyncConfig(
+                item_type="album",
+                fetch_source=self._fetch_spotify_saved_albums,
+                fetch_existing_ids=self.apple_music_fetcher.get_library_album_ids,
+                search_item=lambda item: self.apple_music_searcher.search_album(
+                    item.get("album", {})
+                ),
+                get_source_id=lambda item: item.get("album", {}).get("id"),
+                get_cache_match=self.cache.get_apple_album_match,
+                add_item=lambda apple_id: self.apple_music.add_albums_to_library([apple_id]),
+                add_to_library=self.library.add_albums if self.library else None,
+                add_not_found=(self.library.add_not_found_album if self.library else None),
+                progress_desc="Syncing albums to Apple Music",
+            ),
+            self,
+        )
+
+    async def sync_playlist_to_apple_music(self, spotify_playlist_id: str) -> Tuple[int, int]:
+        """Sync a single Spotify playlist to Apple Music."""
+        self._require_apple_music()
+
+        # Get playlist info from Spotify
+        playlist_data = self.spotify.playlist(spotify_playlist_id)
+        playlist_name = playlist_data.get("name", "Untitled")
+
+        self._log("info", f"Syncing playlist: {playlist_name}")
+
+        # Get or create Apple Music playlist
+        am_playlist_id = self.apple_music.get_or_create_playlist(playlist_name)
+        if not am_playlist_id:
+            self._log("error", f"Failed to create Apple Music playlist: {playlist_name}")
+            return (0, 0)
+
+        # Get existing track IDs to avoid duplicates
+        existing_ids = self.apple_music.get_library_playlist_track_ids(am_playlist_id)
+
+        # Fetch Spotify playlist tracks
+        tracks = await self.spotify_fetcher.get_playlist_tracks(spotify_playlist_id)
+        if self._item_limit:
+            tracks = tracks[: self._item_limit]
+
+        self._log("info", f"Found {len(tracks)} tracks in Spotify playlist")
+
+        # Search and collect Apple Music IDs (preserving order)
+        apple_ids_to_add = []
+        not_found_count = 0
+
+        for track in self._progress_iter(tracks, f"Matching: {playlist_name}"):
+            spotify_track = track.get("track", track)
+            if not spotify_track or not spotify_track.get("id"):
+                continue
+
+            # Search for the track on Apple Music
+            apple_id = await self.apple_music_searcher.search_track(spotify_track)
+            if apple_id:
+                if apple_id not in existing_ids:
+                    apple_ids_to_add.append(apple_id)
+            else:
+                not_found_count += 1
+                if self.library:
+                    self.library.add_not_found_track(spotify_track)
+
+        # Add tracks in order (batches of 100)
+        if apple_ids_to_add:
+            self.apple_music.add_tracks_to_playlist(am_playlist_id, apple_ids_to_add)
+            self._log(
+                "info",
+                f"Added {len(apple_ids_to_add)} tracks to Apple Music playlist "
+                f"'{playlist_name}'",
+            )
+
+        return (len(apple_ids_to_add), not_found_count)
+
+    async def sync_all_playlists_to_apple_music(self) -> dict:
+        """Sync all Spotify playlists to Apple Music."""
+        self._require_apple_music()
+
+        playlists = await self.spotify_fetcher.get_playlists()
+        self._log("info", f"Found {len(playlists)} Spotify playlists")
+
+        results = {}
+        for playlist in playlists:
+            playlist_id = playlist.get("id")
+            playlist_name = playlist.get("name", "Untitled")
+
+            try:
+                added, not_found = await self.sync_playlist_to_apple_music(playlist_id)
+                results[playlist_name] = {
+                    "added": added,
+                    "not_found": not_found,
+                }
+            except Exception as e:
+                self._log("error", f"Failed to sync playlist '{playlist_name}': {e}")
+                results[playlist_name] = {"error": str(e)}
+
+        return results

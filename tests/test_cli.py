@@ -45,6 +45,7 @@ def test_main_to_spotify_favorites_calls_engine(monkeypatch, tmp_path: Path, cap
     class _Engine:
         def __init__(self, *args, **kwargs):
             self.library = _Library()
+            self.tidal = kwargs.get("tidal")
 
         async def sync_favorites_to_spotify(self):
             calls["favorites"] += 1
@@ -88,9 +89,7 @@ def test_main_to_spotify_favorites_calls_engine(monkeypatch, tmp_path: Path, cap
 
 def test_main_errors_when_user_config_missing(monkeypatch, tmp_path: Path):
     missing = tmp_path / "missing.yml"
-    monkeypatch.setattr(
-        sys, "argv", ["spotify2tidal", "--config", str(missing), "--all"]
-    )
+    monkeypatch.setattr(sys, "argv", ["spotify2tidal", "--config", str(missing), "--all"])
 
     with pytest.raises(SystemExit) as e:
         cli.main()
@@ -110,6 +109,7 @@ def test_main_warns_on_to_spotify_without_category(monkeypatch, tmp_path: Path, 
     class _Engine:
         def __init__(self, *args, **kwargs):
             self.library = type("L", (), {"export_dir": str(tmp_path)})()
+            self.tidal = kwargs.get("tidal")
 
         async def export_backup(self, categories=None):
             raise AssertionError("backup should not run when no results")
