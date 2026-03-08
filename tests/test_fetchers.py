@@ -190,7 +190,7 @@ def test_tidal_fetcher_paginates_ids_and_limits_tracks():
     ids = asyncio.run(fetcher.get_favorite_track_ids())
 
     assert ids == set(range(1, 205))
-    assert any("Fetching Tidal favorites" in m for m in messages)
+    assert any("Fetching Tidal track IDs" in m for m in messages)
 
     limited_tracks = asyncio.run(fetcher.get_favorite_tracks(limit_total=10))
     assert [t.id for t in limited_tracks] == list(range(1, 11))

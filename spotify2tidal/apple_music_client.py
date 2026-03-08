@@ -184,7 +184,9 @@ class AppleMusicClient:
             if catalog_id:
                 ids.add(str(catalog_id))
             # Also track the library ID itself
-            ids.add(song.get("id", ""))
+            song_id = song.get("id")
+            if song_id:
+                ids.add(str(song_id))
         return ids
 
     def get_library_playlist_track_ids(self, playlist_id: str) -> Set[str]:
@@ -196,7 +198,9 @@ class AppleMusicClient:
             catalog_id = play_params.get("catalogId")
             if catalog_id:
                 ids.add(str(catalog_id))
-            ids.add(track.get("id", ""))
+            track_id = track.get("id")
+            if track_id:
+                ids.add(str(track_id))
         return ids
 
     # =========================================================================
@@ -216,6 +220,24 @@ class AppleMusicClient:
 
         return True
 
+    def add_songs_to_favorites(self, catalog_ids: List[str]) -> bool:
+        """Mark songs as favorites (hearted). Separate from library."""
+        if not catalog_ids:
+            return True
+
+        for i in range(0, len(catalog_ids), 100):
+            batch = catalog_ids[i : i + 100]
+            ids_param = "&".join(f"ids[songs]={cid}" for cid in batch)
+            url = f"{BASE_URL}/v1/me/favorites?{ids_param}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError as e:
+                # Favorites endpoint may not be available on all accounts
+                logger.warning(f"Failed to favorite songs: {e}")
+                return False
+
+        return True
+
     def add_albums_to_library(self, catalog_ids: List[str]) -> bool:
         """Add albums to the user's library by catalog IDs."""
         if not catalog_ids:
@@ -226,6 +248,23 @@ class AppleMusicClient:
             ids_param = "&".join(f"ids[albums]={cid}" for cid in batch)
             url = f"{BASE_URL}/v1/me/library?{ids_param}"
             self._request("POST", url)
+
+        return True
+
+    def add_albums_to_favorites(self, catalog_ids: List[str]) -> bool:
+        """Mark albums as favorites (hearted). Separate from library."""
+        if not catalog_ids:
+            return True
+
+        for i in range(0, len(catalog_ids), 100):
+            batch = catalog_ids[i : i + 100]
+            ids_param = "&".join(f"ids[albums]={cid}" for cid in batch)
+            url = f"{BASE_URL}/v1/me/favorites?{ids_param}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError as e:
+                logger.warning(f"Failed to favorite albums: {e}")
+                return False
 
         return True
 

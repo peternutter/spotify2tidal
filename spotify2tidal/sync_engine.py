@@ -397,7 +397,10 @@ class SyncEngine:
                 search_item=self.apple_music_searcher.search_track,
                 get_source_id=lambda item: item.get("id"),
                 get_cache_match=self.cache.get_apple_track_match,
-                add_item=lambda apple_id: self.apple_music.add_songs_to_library([apple_id]),
+                add_item=lambda apple_id: (
+                    self.apple_music.add_songs_to_library([apple_id]),
+                    self.apple_music.add_songs_to_favorites([apple_id]),
+                ),
                 add_to_library=self.library.add_tracks if self.library else None,
                 add_not_found=(self.library.add_not_found_track if self.library else None),
                 progress_desc="Syncing favorite tracks to Apple Music",
@@ -418,7 +421,10 @@ class SyncEngine:
                 ),
                 get_source_id=lambda item: item.get("album", {}).get("id"),
                 get_cache_match=self.cache.get_apple_album_match,
-                add_item=lambda apple_id: self.apple_music.add_albums_to_library([apple_id]),
+                add_item=lambda apple_id: (
+                    self.apple_music.add_albums_to_library([apple_id]),
+                    self.apple_music.add_albums_to_favorites([apple_id]),
+                ),
                 add_to_library=self.library.add_albums if self.library else None,
                 add_not_found=(self.library.add_not_found_album if self.library else None),
                 progress_desc="Syncing albums to Apple Music",
