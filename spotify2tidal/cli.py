@@ -373,31 +373,32 @@ def main():
                 count = await engine.export_podcasts()
                 results["podcasts"] = {"exported": count}
 
-            elif args.favorites:
-                logger.progress("Syncing Tidal favorites to Spotify...")
-                added, not_found = await engine.sync_favorites_to_spotify()
-                results["favorites"] = {"added": added, "not_found": not_found}
-
-            elif args.playlists:
-                logger.progress("Syncing Tidal playlists to Spotify...")
-                results["playlists"] = await engine.sync_all_playlists_to_spotify()
-
-            elif args.albums:
-                logger.progress("Syncing Tidal albums to Spotify...")
-                added, not_found = await engine.sync_albums_to_spotify()
-                results["albums"] = {"added": added, "not_found": not_found}
-
-            elif args.artists:
-                logger.progress("Syncing Tidal artists to Spotify...")
-                added, not_found = await engine.sync_artists_to_spotify()
-                results["artists"] = {"added": added, "not_found": not_found}
-
             else:
-                logger.warning(
-                    "Use --to-spotify with --favorites, --albums, "
-                    "--artists, --playlists, or --all"
-                )
-                return {}
+                if args.favorites:
+                    logger.progress("Syncing Tidal favorites to Spotify...")
+                    added, not_found = await engine.sync_favorites_to_spotify()
+                    results["favorites"] = {"added": added, "not_found": not_found}
+
+                if args.playlists:
+                    logger.progress("Syncing Tidal playlists to Spotify...")
+                    results["playlists"] = await engine.sync_all_playlists_to_spotify()
+
+                if args.albums:
+                    logger.progress("Syncing Tidal albums to Spotify...")
+                    added, not_found = await engine.sync_albums_to_spotify()
+                    results["albums"] = {"added": added, "not_found": not_found}
+
+                if args.artists:
+                    logger.progress("Syncing Tidal artists to Spotify...")
+                    added, not_found = await engine.sync_artists_to_spotify()
+                    results["artists"] = {"added": added, "not_found": not_found}
+
+                if not results:
+                    logger.warning(
+                        "Use --to-spotify with --favorites, --albums, "
+                        "--artists, --playlists, or --all"
+                    )
+                    return {}
 
             return results
 
@@ -415,32 +416,33 @@ def main():
                 added, nf = await engine.sync_albums_to_apple_music()
                 results["albums"] = {"added": added, "not_found": nf}
 
-            elif args.favorites:
-                logger.progress("Syncing liked songs to Apple Music...")
-                added, not_found = await engine.sync_favorites_to_apple_music()
-                results["favorites"] = {"added": added, "not_found": not_found}
-
-            elif args.playlists:
-                logger.progress("Syncing all playlists to Apple Music...")
-                results["playlists"] = await engine.sync_all_playlists_to_apple_music()
-
-            elif args.albums:
-                logger.progress("Syncing saved albums to Apple Music...")
-                added, not_found = await engine.sync_albums_to_apple_music()
-                results["albums"] = {"added": added, "not_found": not_found}
-
-            elif args.playlist:
-                playlist_id = args.playlist.split(":")[-1]
-                logger.progress(f"Syncing playlist to Apple Music: {playlist_id}")
-                added, not_found = await engine.sync_playlist_to_apple_music(playlist_id)
-                results["playlist"] = {"added": added, "not_found": not_found}
-
             else:
-                logger.warning(
-                    "Use --to-apple-music with --favorites, --albums, "
-                    "--playlists, --playlist <id>, or --all"
-                )
-                return {}
+                if args.favorites:
+                    logger.progress("Syncing liked songs to Apple Music...")
+                    added, not_found = await engine.sync_favorites_to_apple_music()
+                    results["favorites"] = {"added": added, "not_found": not_found}
+
+                if args.playlists:
+                    logger.progress("Syncing all playlists to Apple Music...")
+                    results["playlists"] = await engine.sync_all_playlists_to_apple_music()
+
+                if args.albums:
+                    logger.progress("Syncing saved albums to Apple Music...")
+                    added, not_found = await engine.sync_albums_to_apple_music()
+                    results["albums"] = {"added": added, "not_found": not_found}
+
+                if args.playlist:
+                    playlist_id = args.playlist.split(":")[-1]
+                    logger.progress(f"Syncing playlist to Apple Music: {playlist_id}")
+                    added, not_found = await engine.sync_playlist_to_apple_music(playlist_id)
+                    results["playlist"] = {"added": added, "not_found": not_found}
+
+                if not results:
+                    logger.warning(
+                        "Use --to-apple-music with --favorites, --albums, "
+                        "--playlists, --playlist <id>, or --all"
+                    )
+                    return {}
 
             return results
 
@@ -474,34 +476,35 @@ def main():
             count = await engine.export_podcasts()
             results["podcasts"] = {"exported": count}
 
-        elif args.favorites:
-            logger.progress("Syncing liked songs...")
-            added, not_found = await engine.sync_favorites()
-            results["favorites"] = {"added": added, "not_found": not_found}
-
-        elif args.albums:
-            logger.progress("Syncing saved albums...")
-            added, not_found = await engine.sync_albums()
-            results["albums"] = {"added": added, "not_found": not_found}
-
-        elif args.artists:
-            logger.progress("Syncing followed artists...")
-            added, not_found = await engine.sync_artists()
-            results["artists"] = {"added": added, "not_found": not_found}
-
-        elif args.playlists:
-            logger.progress("Syncing all playlists...")
-            results["playlists"] = await engine.sync_all_playlists()
-
-        elif args.podcasts:
-            logger.progress("Exporting podcasts...")
-            count = await engine.export_podcasts()
-            results["podcasts"] = {"exported": count}
-
         else:
-            # Default: show help
-            logger.warning("No sync option specified. Use --help to see options.")
-            parser.print_help()
+            if args.favorites:
+                logger.progress("Syncing liked songs...")
+                added, not_found = await engine.sync_favorites()
+                results["favorites"] = {"added": added, "not_found": not_found}
+
+            if args.albums:
+                logger.progress("Syncing saved albums...")
+                added, not_found = await engine.sync_albums()
+                results["albums"] = {"added": added, "not_found": not_found}
+
+            if args.artists:
+                logger.progress("Syncing followed artists...")
+                added, not_found = await engine.sync_artists()
+                results["artists"] = {"added": added, "not_found": not_found}
+
+            if args.playlists:
+                logger.progress("Syncing all playlists...")
+                results["playlists"] = await engine.sync_all_playlists()
+
+            if args.podcasts:
+                logger.progress("Exporting podcasts...")
+                count = await engine.export_podcasts()
+                results["podcasts"] = {"exported": count}
+
+            if not results:
+                # Default: show help
+                logger.warning("No sync option specified. Use --help to see options.")
+                parser.print_help()
             return {}
 
         return results
