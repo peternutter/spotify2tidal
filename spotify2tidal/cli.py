@@ -222,10 +222,7 @@ def print_summary(results: dict, logger: SyncLogger):
 
     logger.info("━" * 50)
     if total_not_found > 0:
-        logger.warning(
-            f"  {total_not_found} items could not be found on the target platform. "
-            "Check library/not_found_*.csv for details."
-        )
+        logger.warning(f"  {total_not_found} items could not be found on the target platform.")
 
 
 def main():

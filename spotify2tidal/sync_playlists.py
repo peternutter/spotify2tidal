@@ -84,11 +84,17 @@ async def sync_playlist(
             logger.info("No new tracks to add")
 
         if not_found_strings:
-            logger.warning(f"Could not find {len(not_found_strings)} tracks:")
-            for track in not_found_strings[:10]:
-                logger.warning(f"  - {track}")
-            if len(not_found_strings) > 10:
-                logger.warning(f"  ... and {len(not_found_strings) - 10} more")
+            sync_logger = getattr(engine, "_logger", None)
+            if sync_logger:
+                sync_logger.warning(
+                    f"  {len(not_found_strings)} track(s) not found in '{playlist_name}':"
+                )
+                for track in not_found_strings:
+                    sync_logger.warning(f"    ✗ {track}")
+            else:
+                logger.warning(f"Could not find {len(not_found_strings)} tracks:")
+                for track in not_found_strings:
+                    logger.warning(f"  - {track}")
 
         return len(new_ids), len(not_found_strings)
     finally:

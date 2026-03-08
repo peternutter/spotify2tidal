@@ -18,6 +18,21 @@ from .retry_utils import retry_async_call
 logger = logging.getLogger(__name__)
 
 
+def _log_not_found(engine: "SyncEngine", item_type: str, not_found_items: List[str]):
+    """Log not-found items through the engine's SyncLogger so they appear in CLI output."""
+    if not not_found_items:
+        return
+    sync_logger = getattr(engine, "_logger", None)
+    if sync_logger:
+        sync_logger.warning(f"  {len(not_found_items)} {item_type}(s) not found:")
+        for name in not_found_items:
+            sync_logger.warning(f"    ✗ {name}")
+    else:
+        logger.warning(f"Not found {item_type}s:")
+        for name in not_found_items:
+            logger.warning(f"  ✗ {name}")
+
+
 def _get_item_name(item, item_type: str) -> str:
     """Extract a human-readable name from various item formats."""
     if isinstance(item, dict):
@@ -138,10 +153,7 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
             f"{config.item_type.title()}s: {added} added, "
             f"{skipped} already existed, {not_found} not found"
         )
-        if not_found_items:
-            logger.info("  Not found on target:")
-            for name in not_found_items:
-                logger.info(f"    ✗ {name}")
+        _log_not_found(engine, config.item_type, not_found_items)
         return added, not_found
 
     finally:
@@ -185,6 +197,7 @@ async def sync_items_batched(
         # Phase 2: Search and collect items to add
         items_to_add = []
         not_found_count = 0
+        not_found_items = []
 
         for item in engine._progress_iter(source_items, config.progress_desc, phase="searching"):
             source_id = config.get_source_id(item)
@@ -198,6 +211,7 @@ async def sync_items_batched(
                 engine._report_progress(event="item", matched=True, from_cache=from_cache)
             else:
                 not_found_count += 1
+                not_found_items.append(_get_item_name(item, config.item_type))
                 engine._report_progress(event="item", matched=False)
                 if config.add_not_found:
                     config.add_not_found(item)
@@ -218,6 +232,7 @@ async def sync_items_batched(
                     logger.warning(f"Failed to add batch: {e}")
 
         logger.info(f"Added {added} {config.item_type}s, {not_found_count} not found")
+        _log_not_found(engine, config.item_type, not_found_items)
         return added, not_found_count
 
     finally:
