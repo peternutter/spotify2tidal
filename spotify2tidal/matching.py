@@ -18,8 +18,31 @@ def normalize(s: str) -> str:
 
 
 def simplify(text: str) -> str:
-    """Simplify track/album name by removing version info in brackets/parentheses."""
-    return text.split("-")[0].strip().split("(")[0].strip().split("[")[0].strip()
+    """Simplify track/album name by removing version info in brackets/parentheses.
+
+    Only strips content after a hyphen when it looks like a version/edition
+    suffix (e.g. "Album - Remastered", "Song - Radio Edit").  Legitimate
+    hyphens in titles like "Artist - Album Name" are preserved.
+    """
+    import re
+
+    text = str(text)
+
+    # Remove parenthesised/bracketed suffixes first
+    text = re.split(r"\s*[\(\[]", text)[0].strip()
+
+    # Only strip after " - " when the remainder is a known tag
+    _EDITION_TAGS = re.compile(
+        r"^(remaster(ed)?|deluxe|expanded|anniversary|bonus|special|"
+        r"radio\s*edit|single|extended|remix(ed)?|live|acoustic|"
+        r"mono|stereo|explicit|clean|original|version|edition|mix)\b",
+        re.IGNORECASE,
+    )
+    parts = text.split(" - ")
+    if len(parts) > 1 and _EDITION_TAGS.match(parts[-1].strip()):
+        text = " - ".join(parts[:-1]).strip()
+
+    return text
 
 
 class TrackMatcher:
@@ -62,18 +85,14 @@ class TrackMatcher:
         spotify_name = spotify_track["name"].lower()
 
         for pattern in patterns:
-            tidal_has = has_pattern(tidal_name, pattern) or has_pattern(
-                tidal_version, pattern
-            )
+            tidal_has = has_pattern(tidal_name, pattern) or has_pattern(tidal_version, pattern)
             spotify_has = has_pattern(spotify_name, pattern)
             if tidal_has != spotify_has:
                 return False
 
         # Simplified name comparison
         simple_spotify = simplify(spotify_name).split("feat.")[0].strip()
-        return simple_spotify in tidal_name or normalize(simple_spotify) in normalize(
-            tidal_name
-        )
+        return simple_spotify in tidal_name or normalize(simple_spotify) in normalize(tidal_name)
 
     @staticmethod
     def artist_match(tidal_item, spotify_item: dict) -> bool:
@@ -106,10 +125,7 @@ class TrackMatcher:
         # Try un-normalized first, then normalized
         if get_tidal_artists(tidal_item) & get_spotify_artists(spotify_item):
             return True
-        return bool(
-            get_tidal_artists(tidal_item, True)
-            & get_spotify_artists(spotify_item, True)
-        )
+        return bool(get_tidal_artists(tidal_item, True) & get_spotify_artists(spotify_item, True))
 
     @classmethod
     def match(cls, tidal_track: "tidalapi.Track", spotify_track: dict) -> bool:
@@ -138,6 +154,4 @@ class TrackMatcher:
             simplify(spotify_album["name"]).lower(),
             simplify(tidal_album.name).lower(),
         ).ratio()
-        return name_similarity >= threshold and cls.artist_match(
-            tidal_album, spotify_album
-        )
+        return name_similarity >= threshold and cls.artist_match(tidal_album, spotify_album)

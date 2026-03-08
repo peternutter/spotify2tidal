@@ -21,9 +21,7 @@ logger = logging.getLogger(__name__)
 class SpotifySearcher:
     """Async Spotify search with smart matching."""
 
-    def __init__(
-        self, session: spotipy.Spotify, cache: MatchCache, rate_limiter: RateLimiter
-    ):
+    def __init__(self, session: spotipy.Spotify, cache: MatchCache, rate_limiter: RateLimiter):
         self.session = session
         self.cache = cache
         self.rate_limiter = rate_limiter
@@ -88,28 +86,37 @@ class SpotifySearcher:
         return None
 
     async def _search_by_metadata(self, tidal_track) -> Optional[str]:
-        """Search by track name and artist."""
+        """Search by track name and artist.
+
+        Tries a field-prefixed query first (``track:… artist:…``), then
+        falls back to a raw query when the prefixed one returns nothing
+        (Spotify field search breaks on special characters like ``'$"?``).
+        """
         track_name = tidal_track.name
         artists = tidal_track.artists or []
         if not track_name or not artists:
             return None
 
         artist_name = artists[0].name if artists else ""
-        query = f"track:{simplify(track_name)} artist:{simplify(artist_name)}"
+        queries = [
+            f"track:{simplify(track_name)} artist:{simplify(artist_name)}",
+            f"{simplify(track_name)} {simplify(artist_name)}",
+        ]
 
-        await self.rate_limiter.acquire()
-        try:
-            results = await retry_async_call(
-                self.session.search, q=query, type="track", limit=10
-            )
+        for query in queries:
+            await self.rate_limiter.acquire()
+            try:
+                results = await retry_async_call(
+                    self.session.search, q=query, type="track", limit=10
+                )
 
-            for spotify_track in results.get("tracks", {}).get("items", []):
-                if self._tracks_match(spotify_track, tidal_track):
-                    return spotify_track["id"]
-        except Exception as e:
-            logger.warning(f"Metadata search failed: {e}")
-        finally:
-            self.rate_limiter.release()
+                for spotify_track in results.get("tracks", {}).get("items", []):
+                    if self._tracks_match(spotify_track, tidal_track):
+                        return spotify_track["id"]
+            except Exception as e:
+                logger.warning(f"Metadata search failed: {e}")
+            finally:
+                self.rate_limiter.release()
 
         return None
 
@@ -147,7 +154,10 @@ class SpotifySearcher:
         return True
 
     async def search_album(self, tidal_album) -> Optional[str]:
-        """Search for a Tidal album on Spotify."""
+        """Search for a Tidal album on Spotify.
+
+        Tries a field-prefixed query first, then falls back to a raw query.
+        """
         tidal_id = tidal_album.id
         if not tidal_id:
             return None
@@ -163,22 +173,26 @@ class SpotifySearcher:
             return None
 
         artist_name = artists[0].name if artists else ""
-        query = f"album:{simplify(name)} artist:{simplify(artist_name)}"
+        queries = [
+            f"album:{simplify(name)} artist:{simplify(artist_name)}",
+            f"{simplify(name)} {simplify(artist_name)}",
+        ]
 
-        await self.rate_limiter.acquire()
-        try:
-            results = await retry_async_call(
-                self.session.search, q=query, type="album", limit=10
-            )
+        for query in queries:
+            await self.rate_limiter.acquire()
+            try:
+                results = await retry_async_call(
+                    self.session.search, q=query, type="album", limit=10
+                )
 
-            for spotify_album in results.get("albums", {}).get("items", []):
-                if self._albums_match(spotify_album, tidal_album):
-                    self.cache.cache_spotify_album_match(tidal_id, spotify_album["id"])
-                    return spotify_album["id"]
-        except Exception as e:
-            logger.warning(f"Album search failed: {e}")
-        finally:
-            self.rate_limiter.release()
+                for spotify_album in results.get("albums", {}).get("items", []):
+                    if self._albums_match(spotify_album, tidal_album):
+                        self.cache.cache_spotify_album_match(tidal_id, spotify_album["id"])
+                        return spotify_album["id"]
+            except Exception as e:
+                logger.warning(f"Album search failed: {e}")
+            finally:
+                self.rate_limiter.release()
 
         return None
 
@@ -220,14 +234,10 @@ class SpotifySearcher:
             for spotify_artist in results.get("artists", {}).get("items", []):
                 spotify_name = spotify_artist.get("name", "")
                 if spotify_name.lower() == name.lower():
-                    self.cache.cache_spotify_artist_match(
-                        tidal_id, spotify_artist["id"]
-                    )
+                    self.cache.cache_spotify_artist_match(tidal_id, spotify_artist["id"])
                     return spotify_artist["id"]
                 if normalize(spotify_name.lower()) == normalize(name.lower()):
-                    self.cache.cache_spotify_artist_match(
-                        tidal_id, spotify_artist["id"]
-                    )
+                    self.cache.cache_spotify_artist_match(tidal_id, spotify_artist["id"])
                     return spotify_artist["id"]
         except Exception as e:
             logger.warning(f"Artist search failed: {e}")

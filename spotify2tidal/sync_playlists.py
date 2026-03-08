@@ -251,14 +251,23 @@ async def _find_or_create_spotify_playlist(engine, name: str) -> str:
     user = await retry_async_call(engine.spotify.current_user)
     user_id = user["id"]
 
+    # Search all playlists (owned AND followed) for a name match.
+    # Prefer an owned playlist, but accept a followed one to avoid duplicates.
+    fallback_id = None
     results = await retry_async_call(engine.spotify.current_user_playlists)
     while True:
         for playlist in results.get("items", []):
-            if playlist.get("name") == name and playlist.get("owner", {}).get("id") == user_id:
-                return playlist["id"]
+            if playlist.get("name") == name:
+                if playlist.get("owner", {}).get("id") == user_id:
+                    return playlist["id"]
+                if fallback_id is None:
+                    fallback_id = playlist["id"]
         if not results.get("next"):
             break
         results = await retry_async_call(engine.spotify.next, results)
+
+    if fallback_id is not None:
+        return fallback_id
 
     created = await retry_async_call(
         engine.spotify.user_playlist_create, user=user_id, name=name, public=False, description=""
