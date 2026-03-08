@@ -71,7 +71,9 @@ class AppleMusicFetcher:
             catalog_id = play_params.get("catalogId")
             if catalog_id:
                 ids.add(str(catalog_id))
-            ids.add(album.get("id", ""))
+            album_id = album.get("id")
+            if album_id:
+                ids.add(str(album_id))
         return ids
 
     async def get_playlist_track_ids(self, playlist_id: str) -> Set[str]:

@@ -170,6 +170,7 @@ class _Tidal:
 class _FakePlaylist:
     def __init__(self, tracks):
         self._tracks = tracks
+        self.num_tracks = len(tracks)
 
     def tracks(self, limit=100, offset=0):
         return self._tracks[offset : offset + limit]

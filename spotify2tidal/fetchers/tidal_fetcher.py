@@ -63,6 +63,8 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_ids) < total_count * 0.9:
+            logger.warning(f"Track IDs: expected ~{total_count}, got {len(all_ids)}")
         return all_ids
 
     async def get_favorite_album_ids(self) -> Set[int]:
@@ -88,6 +90,8 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_ids) < total_count * 0.9:
+            logger.warning(f"Album IDs: expected ~{total_count}, got {len(all_ids)}")
         return all_ids
 
     async def get_favorite_artist_ids(self) -> Set[int]:
@@ -113,15 +117,18 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_ids) < total_count * 0.9:
+            logger.warning(f"Artist IDs: expected ~{total_count}, got {len(all_ids)}")
         return all_ids
 
     async def get_playlist_track_ids(self, playlist: tidalapi.Playlist) -> Set[int]:
         """Get ALL track IDs from a Tidal playlist with proper pagination."""
+        total_count = getattr(playlist, "num_tracks", None) or 0
         all_ids: Set[int] = set()
         limit = 100
         offset = 0
 
-        while True:
+        while offset < max(total_count, 1):
             page = await retry_async_call(playlist.tracks, limit=limit, offset=offset)
             if not page:
                 break
@@ -129,21 +136,22 @@ class TidalFetcher:
             for track in page:
                 all_ids.add(track.id)
 
-            if len(page) < limit:
-                break
             offset += limit
 
+        if total_count and len(all_ids) < total_count * 0.9:
+            logger.warning(f"Playlist track IDs: expected ~{total_count}, got {len(all_ids)}")
         return all_ids
 
     async def get_playlist_tracks(
         self, playlist: tidalapi.Playlist, limit_total: Optional[int] = None
     ) -> List[tidalapi.Track]:
         """Get ALL tracks from a Tidal playlist with proper pagination (in order)."""
+        total_count = getattr(playlist, "num_tracks", None) or 0
         tracks: List[tidalapi.Track] = []
         limit = 100
         offset = 0
 
-        while True:
+        while offset < max(total_count, 1):
             page = await retry_async_call(playlist.tracks, limit=limit, offset=offset)
             if not page:
                 break
@@ -153,10 +161,10 @@ class TidalFetcher:
             if limit_total and len(tracks) >= limit_total:
                 return tracks[:limit_total]
 
-            if len(page) < limit:
-                break
             offset += limit
 
+        if total_count and len(tracks) < total_count * 0.9:
+            logger.warning(f"Playlist tracks: expected ~{total_count}, got {len(tracks)}")
         return tracks
 
     async def get_favorite_tracks(self, limit_total: Optional[int] = None) -> List[tidalapi.Track]:
@@ -185,6 +193,8 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_tracks) < total_count * 0.9:
+            logger.warning(f"Tracks: expected ~{total_count}, got {len(all_tracks)}")
         return all_tracks
 
     async def get_favorite_albums(self, limit_total: Optional[int] = None) -> List[tidalapi.Album]:
@@ -209,6 +219,8 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_albums) < total_count * 0.9:
+            logger.warning(f"Albums: expected ~{total_count}, got {len(all_albums)}")
         return all_albums
 
     async def get_favorite_artists(
@@ -235,6 +247,8 @@ class TidalFetcher:
 
             offset += limit
 
+        if len(all_artists) < total_count * 0.9:
+            logger.warning(f"Artists: expected ~{total_count}, got {len(all_artists)}")
         return all_artists
 
     async def get_playlists(self, limit: Optional[int] = None) -> List[tidalapi.Playlist]:

@@ -61,8 +61,9 @@ async def sync_playlist(
                 tidal_track_ids.append(tidal_id)
                 engine._report_progress(event="item", matched=True)
             else:
-                artist = spotify_track["artists"][0]["name"]
-                name = spotify_track["name"]
+                artists = spotify_track.get("artists") or []
+                artist = artists[0]["name"] if artists else "?"
+                name = spotify_track.get("name", "?")
                 not_found_strings.append(f"{artist} - {name}")
                 not_found_tracks.append(spotify_track)
                 engine._report_progress(event="item", matched=False)
@@ -168,8 +169,8 @@ async def sync_tidal_playlist_to_spotify(engine, tidal_playlist) -> Tuple[int, i
                                 "context": f"playlist:{playlist_name}",
                             }
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to log not-found track: {e}")
                 continue
 
             engine._report_progress(event="item", matched=True)

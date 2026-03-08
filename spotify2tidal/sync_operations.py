@@ -29,7 +29,7 @@ def _get_item_name(item, item_type: str) -> str:
         return f"{artist} - {name}"
     # Tidal-style object
     name = getattr(item, "name", "?")
-    artists = getattr(item, "artists", [])
+    artists = getattr(item, "artists", None) or []
     artist = artists[0].name if artists else "?"
     return f"{artist} - {name}"
 
