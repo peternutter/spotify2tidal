@@ -23,9 +23,7 @@ class _PagingSpotify:
             },
         ]
         self._saved_albums_pages = [{"items": [{"album": {"id": "a1"}}], "next": None}]
-        self._followed_artists_pages = [
-            {"items": [{"id": "ar1"}, {"id": "ar2"}], "next": None}
-        ]
+        self._followed_artists_pages = [{"items": [{"id": "ar1"}, {"id": "ar2"}], "next": None}]
         self._playlist_tracks_pages = [
             {
                 "items": [
@@ -149,6 +147,15 @@ class _Favorites:
     def artists(self, limit=100, offset=0):
         return self._artists[offset : offset + limit]
 
+    def get_tracks_count(self):
+        return len(self._tracks)
+
+    def get_albums_count(self):
+        return len(self._albums)
+
+    def get_artists_count(self):
+        return len(self._artists)
+
 
 class _TidalUser:
     def __init__(self, favorites):
@@ -189,9 +196,7 @@ def test_tidal_fetcher_paginates_ids_and_limits_tracks():
 
 
 def test_tidal_fetcher_playlist_tracks_keeps_order_and_respects_limit():
-    playlist = _FakePlaylist(
-        [_FakeTidalTrack(1), _FakeTidalTrack(2), _FakeTidalTrack(3)]
-    )
+    playlist = _FakePlaylist([_FakeTidalTrack(1), _FakeTidalTrack(2), _FakeTidalTrack(3)])
     fetcher = TidalFetcher(_Tidal(_Favorites(tracks=[], albums=[], artists=[])))
 
     all_tracks = asyncio.run(fetcher.get_playlist_tracks(playlist))

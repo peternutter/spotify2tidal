@@ -57,6 +57,7 @@ def test_tidal_fetcher_retries_on_connection_reset():
     # Simulate a flaky favorite tracks fetch
     flaky = FlakyClient(success_data=[], fail_count=1)
     mock_tidal.user.favorites.tracks.side_effect = flaky.call
+    mock_tidal.user.favorites.get_tracks_count.return_value = 100
 
     fetcher = TidalFetcher(mock_tidal)
 

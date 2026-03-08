@@ -41,14 +41,15 @@ class TidalFetcher:
         """
         Get ALL favorite track IDs from Tidal with proper pagination.
 
-        Tidal's favorites.tracks() only returns the first page (~100 items).
-        We need to paginate to get all favorites for proper duplicate detection.
+        Uses get_tracks_count() to know the total, since Tidal may return
+        fewer items than ``limit`` on a page without being done.
         """
+        total_count = await retry_async_call(self.tidal.user.favorites.get_tracks_count)
         all_ids: Set[int] = set()
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.tracks, limit=limit, offset=offset
             )
@@ -58,21 +59,20 @@ class TidalFetcher:
             for track in page:
                 all_ids.add(track.id)
 
-            self._log_progress(f"Fetching Tidal favorites: {len(all_ids)} tracks...")
+            self._log_progress(f"Fetching Tidal favorites: {len(all_ids)}/{total_count} tracks...")
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_ids
 
     async def get_favorite_album_ids(self) -> Set[int]:
         """Get ALL favorite album IDs from Tidal with proper pagination."""
+        total_count = await retry_async_call(self.tidal.user.favorites.get_albums_count)
         all_ids: Set[int] = set()
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.albums, limit=limit, offset=offset
             )
@@ -82,21 +82,22 @@ class TidalFetcher:
             for album in page:
                 all_ids.add(album.id)
 
-            self._log_progress(f"Fetching Tidal album favorites: {len(all_ids)} albums...")
+            self._log_progress(
+                f"Fetching Tidal album favorites: {len(all_ids)}/{total_count} albums..."
+            )
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_ids
 
     async def get_favorite_artist_ids(self) -> Set[int]:
         """Get ALL favorite artist IDs from Tidal with proper pagination."""
+        total_count = await retry_async_call(self.tidal.user.favorites.get_artists_count)
         all_ids: Set[int] = set()
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.artists, limit=limit, offset=offset
             )
@@ -106,10 +107,10 @@ class TidalFetcher:
             for artist in page:
                 all_ids.add(artist.id)
 
-            self._log_progress(f"Fetching Tidal artist favorites: {len(all_ids)} artists...")
+            self._log_progress(
+                f"Fetching Tidal artist favorites: {len(all_ids)}/{total_count} artists..."
+            )
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_ids
@@ -160,11 +161,16 @@ class TidalFetcher:
 
     async def get_favorite_tracks(self, limit_total: Optional[int] = None) -> List[tidalapi.Track]:
         """Get favorite tracks from Tidal (full objects, optionally limited)."""
+        # Get the actual total count first to paginate correctly
+        # (Tidal may return fewer items than `limit` on a page without being done)
+        total_count = await retry_async_call(self.tidal.user.favorites.get_tracks_count)
+        self._log_progress(f"Tidal reports {total_count} favorite tracks")
+
         all_tracks: List[tidalapi.Track] = []
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.tracks, limit=limit, offset=offset
             )
@@ -175,21 +181,20 @@ class TidalFetcher:
             if limit_total and len(all_tracks) >= limit_total:
                 self._log_progress(f"Fetching Tidal tracks (limited): {len(all_tracks)}...")
                 return all_tracks[:limit_total]
-            self._log_progress(f"Fetching Tidal tracks: {len(all_tracks)}...")
+            self._log_progress(f"Fetching Tidal tracks: {len(all_tracks)}/{total_count}...")
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_tracks
 
     async def get_favorite_albums(self, limit_total: Optional[int] = None) -> List[tidalapi.Album]:
         """Get favorite albums from Tidal (full objects, optionally limited)."""
+        total_count = await retry_async_call(self.tidal.user.favorites.get_albums_count)
         all_albums: List[tidalapi.Album] = []
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.albums, limit=limit, offset=offset
             )
@@ -200,10 +205,8 @@ class TidalFetcher:
             if limit_total and len(all_albums) >= limit_total:
                 self._log_progress(f"Fetching Tidal albums (limited): {len(all_albums)}...")
                 return all_albums[:limit_total]
-            self._log_progress(f"Fetching Tidal albums: {len(all_albums)}...")
+            self._log_progress(f"Fetching Tidal albums: {len(all_albums)}/{total_count}...")
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_albums
@@ -212,11 +215,12 @@ class TidalFetcher:
         self, limit_total: Optional[int] = None
     ) -> List[tidalapi.Artist]:
         """Get favorite artists from Tidal (full objects, optionally limited)."""
+        total_count = await retry_async_call(self.tidal.user.favorites.get_artists_count)
         all_artists: List[tidalapi.Artist] = []
         limit = 100
         offset = 0
 
-        while True:
+        while offset < total_count:
             page = await retry_async_call(
                 self.tidal.user.favorites.artists, limit=limit, offset=offset
             )
@@ -227,10 +231,8 @@ class TidalFetcher:
             if limit_total and len(all_artists) >= limit_total:
                 self._log_progress(f"Fetching Tidal artists (limited): {len(all_artists)}...")
                 return all_artists[:limit_total]
-            self._log_progress(f"Fetching Tidal artists: {len(all_artists)}...")
+            self._log_progress(f"Fetching Tidal artists: {len(all_artists)}/{total_count}...")
 
-            if len(page) < limit:
-                break
             offset += limit
 
         return all_artists
