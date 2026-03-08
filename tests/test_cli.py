@@ -80,7 +80,8 @@ def test_main_to_spotify_favorites_calls_engine(monkeypatch, tmp_path: Path, cap
     cli.main()
 
     assert calls["favorites"] == 1
-    assert calls["backup"] == 1
+    # Backup only runs for forward sync (to_tidal), not for --to-spotify
+    assert calls["backup"] == 0
 
     out = capsys.readouterr().out
     assert "Tidal → Spotify" in out

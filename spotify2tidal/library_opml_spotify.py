@@ -71,6 +71,35 @@ def extract_rss_from_text(text: str) -> Optional[str]:
     return None
 
 
+def _itunes_search(session: requests.Session, query: str, limit: int = 5) -> list:
+    """Search iTunes podcast API, return results list."""
+    try:
+        params = {"term": query, "entity": "podcast", "limit": limit}
+        response = session.get("https://itunes.apple.com/search", params=params, timeout=5)
+        if response.status_code == 200:
+            return response.json().get("results", [])
+    except Exception as e:
+        logger.debug(f"iTunes search failed for '{query}': {e}")
+    return []
+
+
+def _best_feed_from_results(
+    results: list, name: str, publisher: str, min_score: float = 0.3
+) -> Optional[str]:
+    """Pick the best RSS feed from iTunes results using score_match."""
+    best_url = None
+    best_score = 0.0
+    for result in results:
+        feed = result.get("feedUrl")
+        if not feed:
+            continue
+        score = score_match(name, publisher, result)
+        if score > best_score and score >= min_score:
+            best_score = score
+            best_url = feed
+    return best_url
+
+
 def resolve_rss_url(
     session: requests.Session, name: str, publisher: str = "", description: str = ""
 ) -> Optional[str]:
@@ -81,16 +110,25 @@ def resolve_rss_url(
     if desc_rss:
         return desc_rss
 
-    # Strategy 1: Search iTunes API - trust their ranking
-    try:
-        params = {"term": name, "entity": "podcast", "limit": 1}
-        response = session.get("https://itunes.apple.com/search", params=params, timeout=5)
-        if response.status_code == 200:
-            results = response.json().get("results", [])
-            if results and results[0].get("feedUrl"):
-                return results[0].get("feedUrl")
-    except Exception as e:
-        logger.debug(f"iTunes search failed for '{name}': {e}")
+    # Strategy 1: Search iTunes by podcast name, score multiple results
+    results = _itunes_search(session, name, limit=5)
+    feed = _best_feed_from_results(results, name, publisher)
+    if feed:
+        return feed
+
+    # Strategy 2: Search by "name publisher" combined
+    if publisher:
+        results = _itunes_search(session, f"{name} {publisher}", limit=5)
+        feed = _best_feed_from_results(results, name, publisher)
+        if feed:
+            return feed
+
+    # Strategy 3: Search by publisher alone (for oddly-named podcasts)
+    if publisher and normalize(publisher) != normalize(name):
+        results = _itunes_search(session, publisher, limit=5)
+        feed = _best_feed_from_results(results, name, publisher, min_score=0.5)
+        if feed:
+            return feed
 
     return None
 

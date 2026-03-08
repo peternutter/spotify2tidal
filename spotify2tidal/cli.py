@@ -528,8 +528,8 @@ def main():
                 if args.podcasts:
                     categories.append("podcasts")
 
-            # Auto-export backup snapshot (only when Tidal is connected)
-            if engine.tidal:
+            # Auto-export backup snapshot (only for forward sync to Tidal)
+            if engine.tidal and direction == "to_tidal":
                 logger.progress("Exporting backup snapshot...")
                 export_result = asyncio.run(engine.export_backup(categories=categories))
                 if export_result.get("files"):

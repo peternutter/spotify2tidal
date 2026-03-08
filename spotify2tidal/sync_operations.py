@@ -18,6 +18,22 @@ from .retry_utils import retry_async_call
 logger = logging.getLogger(__name__)
 
 
+def _get_item_name(item, item_type: str) -> str:
+    """Extract a human-readable name from various item formats."""
+    if isinstance(item, dict):
+        # Spotify-style dict
+        inner = item.get("track", item) if item_type == "track" else item.get("album", item)
+        name = inner.get("name", "?")
+        artists = inner.get("artists", [])
+        artist = artists[0]["name"] if artists else "?"
+        return f"{artist} - {name}"
+    # Tidal-style object
+    name = getattr(item, "name", "?")
+    artists = getattr(item, "artists", [])
+    artist = artists[0].name if artists else "?"
+    return f"{artist} - {name}"
+
+
 @dataclass
 class SyncConfig:
     """Configuration for a generic sync operation."""
@@ -86,6 +102,7 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
         added = 0
         not_found = 0
         skipped = 0
+        not_found_items = []
 
         for item in engine._progress_iter(source_items, config.progress_desc, phase="searching"):
             source_id = config.get_source_id(item)
@@ -102,20 +119,29 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
                 try:
                     await retry_async_call(config.add_item, target_id)
                     added += 1
+                    # Log each added item
+                    item_name = _get_item_name(item, config.item_type)
+                    logger.info(f"  + Added: {item_name}")
                     engine._report_progress(event="item", matched=True, from_cache=from_cache)
                 except Exception as e:
                     logger.warning(f"Failed to add {config.item_type}: {e}")
                     engine._report_progress(event="item", matched=False, failed=True)
             else:
                 not_found += 1
+                item_name = _get_item_name(item, config.item_type)
+                not_found_items.append(item_name)
                 engine._report_progress(event="item", matched=False)
                 if config.add_not_found:
                     config.add_not_found(item)
 
         logger.info(
             f"{config.item_type.title()}s: {added} added, "
-            f"{skipped} existed, {not_found} not found"
+            f"{skipped} already existed, {not_found} not found"
         )
+        if not_found_items:
+            logger.info("  Not found on target:")
+            for name in not_found_items:
+                logger.info(f"    ✗ {name}")
         return added, not_found
 
     finally:
