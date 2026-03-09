@@ -8,3 +8,7 @@ library
 .streamlit/secrets.toml
 .DS_Store
 .coverage
+output*.txt
+__MACOSX/
+*.zip
+vison.md

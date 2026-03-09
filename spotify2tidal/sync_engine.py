@@ -50,6 +50,7 @@ class SyncEngine:
         spotify: spotipy.Spotify,
         tidal: Optional["tidalapi.Session"] = None,
         apple_music: Optional["AppleMusicClient"] = None,
+        apple_music_fallback: Optional["AppleMusicClient"] = None,
         max_concurrent: int = 10,
         rate_limit: float = 10,
         library_dir: Optional[str] = "./library",
@@ -85,7 +86,10 @@ class SyncEngine:
             from .fetchers import AppleMusicFetcher
 
             self.apple_music_searcher = AppleMusicSearcher(
-                apple_music, self.cache, self.rate_limiter
+                apple_music,
+                self.cache,
+                self.rate_limiter,
+                fallback_client=apple_music_fallback,
             )
             self.apple_music_fetcher = AppleMusicFetcher(
                 apple_music,
@@ -459,20 +463,38 @@ class SyncEngine:
         apple_ids_to_add = []
         not_found_count = 0
 
-        for track in self._progress_iter(tracks, f"Matching: {playlist_name}"):
-            spotify_track = track.get("track", track)
-            if not spotify_track or not spotify_track.get("id"):
+        not_found_names = []
+
+        for spotify_track in self._progress_iter(tracks, f"Matching: {playlist_name}"):
+            if not isinstance(spotify_track, dict) or not spotify_track.get("id"):
+                logger.debug(f"Skipping non-track item: {type(spotify_track).__name__}")
                 continue
 
             # Search for the track on Apple Music
-            apple_id = await self.apple_music_searcher.search_track(spotify_track)
+            try:
+                apple_id = await self.apple_music_searcher.search_track(spotify_track)
+            except Exception as e:
+                track_name = spotify_track.get("name", "?")
+                logger.warning(f"Search failed for '{track_name}': {e}")
+                not_found_count += 1
+                continue
+
             if apple_id:
                 if apple_id not in existing_ids:
                     apple_ids_to_add.append(apple_id)
             else:
                 not_found_count += 1
+                artists = spotify_track.get("artists") or []
+                artist = artists[0]["name"] if artists else "?"
+                not_found_names.append(f"{artist} - {spotify_track.get('name', '?')}")
                 if self.library:
                     self.library.add_not_found_track(spotify_track)
+
+        # Log not-found tracks
+        if not_found_names:
+            self._log("warning", f"  {not_found_count} track(s) not found in '{playlist_name}':")
+            for name in not_found_names:
+                self._log("warning", f"    ✗ {name}")
 
         # Add tracks in order (batches of 100)
         if apple_ids_to_add:
@@ -485,17 +507,26 @@ class SyncEngine:
 
         return (len(apple_ids_to_add), not_found_count)
 
-    async def sync_all_playlists_to_apple_music(self) -> dict:
+    async def sync_all_playlists_to_apple_music(
+        self, skip_playlists: Optional[List[str]] = None
+    ) -> dict:
         """Sync all Spotify playlists to Apple Music."""
         self._require_apple_music()
+        skip_names = {s.lower() for s in (skip_playlists or [])}
 
         playlists = await self.spotify_fetcher.get_playlists()
         self._log("info", f"Found {len(playlists)} Spotify playlists")
 
         results = {}
-        for playlist in playlists:
+        for i, playlist in enumerate(playlists):
             playlist_id = playlist.get("id")
             playlist_name = playlist.get("name", "Untitled")
+
+            if playlist_name.lower() in skip_names:
+                self._log("info", f"[{i + 1}/{len(playlists)}] Skipping: {playlist_name}")
+                continue
+
+            self._log("info", f"[{i + 1}/{len(playlists)}] Playlist: {playlist_name}")
 
             try:
                 added, not_found = await self.sync_playlist_to_apple_music(playlist_id)
@@ -506,5 +537,11 @@ class SyncEngine:
             except Exception as e:
                 self._log("error", f"Failed to sync playlist '{playlist_name}': {e}")
                 results[playlist_name] = {"error": str(e)}
+
+            # Brief cooldown between playlists to avoid API throttling
+            if i < len(playlists) - 1:
+                import asyncio
+
+                await asyncio.sleep(2)
 
         return results

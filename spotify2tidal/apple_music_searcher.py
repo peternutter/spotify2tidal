@@ -26,10 +26,12 @@ class AppleMusicSearcher:
         client: "AppleMusicClient",
         cache: MatchCache,
         rate_limiter: RateLimiter,
+        fallback_client: "Optional[AppleMusicClient]" = None,
     ):
         self.client = client
         self.cache = cache
         self.rate_limiter = rate_limiter
+        self.fallback_client = fallback_client
 
     async def search_track(self, spotify_track: dict) -> Optional[str]:
         """Search for a Spotify track on Apple Music. Returns catalog ID or None."""
@@ -47,29 +49,40 @@ class AppleMusicSearcher:
         if self.cache.has_recent_failure(failure_key):
             return None
 
-        # Strategy 1: ISRC match (most reliable)
-        isrc = spotify_track.get("external_ids", {}).get("isrc")
-        if isrc:
-            result = await self._search_by_isrc(isrc, spotify_track)
+        # Try primary client, then fallback (e.g., different storefront)
+        for client in self._clients():
+            # Strategy 1: ISRC match (most reliable)
+            isrc = spotify_track.get("external_ids", {}).get("isrc")
+            if isrc:
+                result = await self._search_by_isrc(isrc, spotify_track, client=client)
+                if result:
+                    self.cache.cache_apple_track_match(spotify_id, result)
+                    return result
+
+            # Strategy 2: Text search with matching
+            result = await self._search_by_text(spotify_track, client=client)
             if result:
                 self.cache.cache_apple_track_match(spotify_id, result)
                 return result
-
-        # Strategy 2: Text search with matching
-        result = await self._search_by_text(spotify_track)
-        if result:
-            self.cache.cache_apple_track_match(spotify_id, result)
-            return result
 
         # Cache the failure
         self.cache.cache_failure(failure_key)
         return None
 
-    async def _search_by_isrc(self, isrc: str, spotify_track: dict) -> Optional[str]:
+    def _clients(self):
+        """Yield primary client, then fallback if available."""
+        yield self.client
+        if self.fallback_client:
+            yield self.fallback_client
+
+    async def _search_by_isrc(
+        self, isrc: str, spotify_track: dict, client: "Optional[AppleMusicClient]" = None
+    ) -> Optional[str]:
         """Search by ISRC code - primary strategy."""
+        client = client or self.client
         await self.rate_limiter.acquire()
         try:
-            song = await retry_async_call(self.client.search_catalog_by_isrc, isrc)
+            song = await retry_async_call(client.search_catalog_by_isrc, isrc)
             if song:
                 # Verify it's a reasonable match (ISRC should be definitive,
                 # but check artist to avoid rare ISRC reuse)
@@ -95,8 +108,11 @@ class AppleMusicSearcher:
 
         return None
 
-    async def _search_by_text(self, spotify_track: dict) -> Optional[str]:
+    async def _search_by_text(
+        self, spotify_track: dict, client: "Optional[AppleMusicClient]" = None
+    ) -> Optional[str]:
         """Fallback text-based search."""
+        client = client or self.client
         artists = spotify_track.get("artists", [])
         if not artists:
             return None
@@ -109,7 +125,7 @@ class AppleMusicSearcher:
 
         await self.rate_limiter.acquire()
         try:
-            results = await retry_async_call(self.client.search_catalog, query, "songs", 15)
+            results = await retry_async_call(client.search_catalog, query, "songs", 15)
             match = self._find_best_match(results, spotify_track)
             if match:
                 return match
@@ -123,7 +139,7 @@ class AppleMusicSearcher:
             await self.rate_limiter.acquire()
             try:
                 results = await retry_async_call(
-                    self.client.search_catalog, simplify(track_name), "songs", 15
+                    client.search_catalog, simplify(track_name), "songs", 15
                 )
                 match = self._find_best_match(results, spotify_track)
                 if match:
@@ -207,9 +223,22 @@ class AppleMusicSearcher:
         artist_name = artists[0].get("name", "")
         query = f"{simplify(album_name)} {simplify(artist_name)}"
 
+        for client in self._clients():
+            result = await self._search_album_with_client(
+                client, query, album_name, artist_name, spotify_id
+            )
+            if result:
+                return result
+
+        return None
+
+    async def _search_album_with_client(
+        self, client, query, album_name, artist_name, spotify_id
+    ) -> Optional[str]:
+        """Search for an album using a specific client."""
         await self.rate_limiter.acquire()
         try:
-            results = await retry_async_call(self.client.search_catalog, query, "albums", 10)
+            results = await retry_async_call(client.search_catalog, query, "albums", 10)
             sp_name = normalize(simplify(album_name)).lower()
 
             for result in results:

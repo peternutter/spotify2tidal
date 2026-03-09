@@ -284,15 +284,44 @@ class AppleMusicClient:
         return items[0] if items else None
 
     def add_tracks_to_playlist(self, playlist_id: str, catalog_ids: List[str]) -> bool:
-        """Add tracks to a library playlist. Batches in groups of 100."""
+        """Add tracks to a library playlist with automatic batch size reduction on failure."""
         if not catalog_ids:
             return True
 
         url = f"{BASE_URL}/v1/me/library/playlists/{playlist_id}/tracks"
+        failed_ids = []
+
         for i in range(0, len(catalog_ids), 100):
             batch = catalog_ids[i : i + 100]
-            payload = {"data": [{"id": cid, "type": "songs"} for cid in batch]}
-            self._request("POST", url, json=payload)
+            try:
+                payload = {"data": [{"id": cid, "type": "songs"} for cid in batch]}
+                self._request("POST", url, json=payload)
+            except AppleMusicAPIError as e:
+                if "500" in str(e) or "Unable to update" in str(e):
+                    logger.warning(
+                        f"Batch of {len(batch)} failed with 500, retrying in smaller batches"
+                    )
+                    # Retry in batches of 10 with delays
+                    for j in range(0, len(batch), 10):
+                        sub_batch = batch[j : j + 10]
+                        time.sleep(1)
+                        try:
+                            payload = {"data": [{"id": cid, "type": "songs"} for cid in sub_batch]}
+                            self._request("POST", url, json=payload)
+                        except AppleMusicAPIError:
+                            # Try one by one
+                            for cid in sub_batch:
+                                try:
+                                    payload = {"data": [{"id": cid, "type": "songs"}]}
+                                    self._request("POST", url, json=payload)
+                                except AppleMusicAPIError as e3:
+                                    logger.warning(f"Failed to add track {cid}: {e3}")
+                                    failed_ids.append(cid)
+                else:
+                    raise
+
+        if failed_ids:
+            logger.warning(f"{len(failed_ids)} tracks failed to add to playlist")
 
         return True
 

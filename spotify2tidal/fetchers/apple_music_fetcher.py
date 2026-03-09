@@ -60,10 +60,17 @@ class AppleMusicFetcher:
 
     async def get_library_song_ids(self) -> Set[str]:
         """Fetch catalog IDs of all songs in the user's library."""
-        return await self._run_sync(self.client.get_library_song_ids)
+        if self.progress_callback:
+            self.progress_callback("Fetching existing Apple Music library songs...")
+        ids = await self._run_sync(self.client.get_library_song_ids)
+        if self.progress_callback:
+            self.progress_callback(f"Found {len(ids)} existing songs in Apple Music library")
+        return ids
 
     async def get_library_album_ids(self) -> Set[str]:
         """Fetch IDs of all albums in the user's library."""
+        if self.progress_callback:
+            self.progress_callback("Fetching existing Apple Music library albums...")
         albums = await self._run_sync(self.client.get_library_albums)
         ids = set()
         for album in albums:

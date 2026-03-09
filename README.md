@@ -1,6 +1,6 @@
 # spotify2tidal
 
-Sync your music library between Spotify and Tidal -- **bidirectionally**.
+Sync your music library between Spotify, Tidal, and Apple Music.
 
 This project combines and improves upon two open-source scripts:
 
@@ -9,10 +9,10 @@ This project combines and improves upon two open-source scripts:
 
 ## Features
 
-- **Bidirectional sync** -- Spotify → Tidal and Tidal → Spotify
+- **Multi-platform** -- Spotify ↔ Tidal and Spotify → Apple Music
 - **Sync playlists** with incremental updates (only adds new tracks)
 - **Sync favorites** (liked tracks), albums, and followed artists
-- **Export podcasts** to CSV & OPML (Tidal doesn't support podcasts)
+- **Export podcasts** to CSV & OPML (Tidal/Apple Music don't support podcasts)
 - **Smart matching** using ISRC, duration, name, and artist
 - **Order preservation** -- oldest items appear at bottom (matching Spotify)
 - **Incremental sync** -- skips items already in your library
@@ -54,6 +54,8 @@ pip install -e .
 
 ## Setup
 
+### Spotify
+
 1. Create a Spotify app at [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard)
 2. Add a Redirect URI depending on how you run the project:
 
@@ -61,6 +63,23 @@ pip install -e .
 - Streamlit webapp (local): `http://localhost:8501/`
 
 3. Copy `config.example.yml` to `config.yml` and add your credentials
+
+> **Note (March 2026):** Spotify now requires the app owner to have an active **Premium subscription** for Dev Mode API access. Free/Student plans may not work. See [Spotify's announcement](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security).
+
+### Apple Music (optional)
+
+Apple Music sync uses cookie-based authentication — no Apple Developer account needed. Tokens last ~6 months.
+
+1. Open https://music.apple.com in your browser and sign in
+2. Open DevTools (F12) → Network tab
+3. Click any request to `amp-api.music.apple.com`
+4. Copy these headers into `config.yml`:
+   - `Authorization` → `bearer_token` (without the "Bearer " prefix)
+   - `Media-User-Token` → `media_user_token`
+   - `Cookie` → `cookies`
+5. Set `storefront` to your account region (e.g., `us`, `cz`, `gb`)
+
+If your storefront has a smaller catalog, the tool automatically falls back to the US catalog for better match rates.
 
 ## CLI Usage
 
@@ -79,6 +98,24 @@ spotify2tidal --podcasts     # Export podcasts to CSV & OPML
 
 # Sync a specific playlist
 spotify2tidal -p <playlist_id_or_uri>
+```
+
+### Spotify → Apple Music
+
+```bash
+# Sync everything to Apple Music
+spotify2tidal --to-apple-music --all
+
+# Sync specific categories
+spotify2tidal --to-apple-music --favorites   # Liked songs → Apple Music Library + Favorites
+spotify2tidal --to-apple-music --albums      # Saved albums → Apple Music Library
+spotify2tidal --to-apple-music --playlists   # All playlists
+
+# Sync a specific playlist
+spotify2tidal --to-apple-music -p <playlist_id>
+
+# Skip specific playlists (by name)
+spotify2tidal --to-apple-music --playlists --skip-playlist "Huge Playlist"
 ```
 
 ### Tidal → Spotify
@@ -172,8 +209,9 @@ pytest tests/ -v
 ## Requirements
 
 - Python 3.10+
-- Spotify Premium account
-- Tidal account
+- Spotify Premium account (required for API access since March 2026)
+- Tidal account (optional)
+- Apple Music account (optional)
 
 ## License
 

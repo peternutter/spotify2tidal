@@ -68,6 +68,12 @@ Tips:
     )
     parser.add_argument("--playlist", "-p", help="Sync a specific Spotify playlist (ID or URI)")
     parser.add_argument(
+        "--skip-playlist",
+        action="append",
+        default=[],
+        help="Skip playlist by name (can be used multiple times)",
+    )
+    parser.add_argument(
         "--favorites",
         "-f",
         action="store_true",
@@ -316,10 +322,28 @@ def main():
     cache = MatchCache(cache_file=cache_file)
     logger.debug(f"Using cache: {cache_file} ({cache.get_stats()})")
 
+    # Create a fallback Apple Music client with US storefront for broader catalog
+    apple_music_fallback = None
+    if apple_music_client and apple_music_client.storefront != "us":
+        from .apple_music_client import AppleMusicClient
+
+        am_config = config.get("apple_music", {})
+        apple_music_fallback = AppleMusicClient(
+            bearer_token=am_config.get("bearer_token", ""),
+            media_user_token=am_config.get("media_user_token", ""),
+            cookies=am_config.get("cookies", ""),
+            storefront="us",
+        )
+        logger.info(
+            f"Using {apple_music_client.storefront.upper()} catalog "
+            f"with US fallback for broader coverage"
+        )
+
     engine = SyncEngine(
         spotify,
         tidal=tidal,
         apple_music=apple_music_client,
+        apple_music_fallback=apple_music_fallback,
         max_concurrent=sync_config.get("max_concurrent", 10),
         rate_limit=sync_config.get("rate_limit", 10),
         library_dir=str(library_dir),
@@ -407,7 +431,9 @@ def main():
                 results["favorites"] = {"added": added, "not_found": nf}
 
                 logger.progress("Syncing all playlists to Apple Music...")
-                results["playlists"] = await engine.sync_all_playlists_to_apple_music()
+                results["playlists"] = await engine.sync_all_playlists_to_apple_music(
+                    skip_playlists=args.skip_playlist,
+                )
 
                 logger.progress("Syncing saved albums to Apple Music...")
                 added, nf = await engine.sync_albums_to_apple_music()
@@ -419,14 +445,16 @@ def main():
                     added, not_found = await engine.sync_favorites_to_apple_music()
                     results["favorites"] = {"added": added, "not_found": not_found}
 
-                if args.playlists:
-                    logger.progress("Syncing all playlists to Apple Music...")
-                    results["playlists"] = await engine.sync_all_playlists_to_apple_music()
-
                 if args.albums:
                     logger.progress("Syncing saved albums to Apple Music...")
                     added, not_found = await engine.sync_albums_to_apple_music()
                     results["albums"] = {"added": added, "not_found": not_found}
+
+                if args.playlists:
+                    logger.progress("Syncing all playlists to Apple Music...")
+                    results["playlists"] = await engine.sync_all_playlists_to_apple_music(
+                        skip_playlists=args.skip_playlist,
+                    )
 
                 if args.playlist:
                     playlist_id = args.playlist.split(":")[-1]
@@ -543,6 +571,8 @@ def main():
         logger.info("Your progress has been cached. Run again to resume.")
         sys.exit(1)
     except Exception as e:
+        import traceback
+
         error_str = str(e).lower()
         if "rate" in error_str or "limit" in error_str or "429" in error_str:
             logger.error(UserErrors.rate_limited())
@@ -551,10 +581,8 @@ def main():
         else:
             logger.error(UserErrors.sync_error("sync operation", str(e)))
 
-        if args.verbose:
-            import traceback
-
-            traceback.print_exc()
+        # Always log the traceback so bugs are diagnosable
+        logger.error(f"Traceback:\n{traceback.format_exc()}")
         sys.exit(1)
 
 
