@@ -138,6 +138,16 @@ Tips:
         metavar="N",
         help="Limit items processed per category (for debugging large libraries)",
     )
+    parser.add_argument(
+        "--skip-existing-check",
+        action="store_true",
+        help="Skip fetching existing library IDs from target (faster restart, uses cache instead)",
+    )
+    parser.add_argument(
+        "--clear-failures",
+        action="store_true",
+        help="Clear cached search failures so not-found tracks get retried",
+    )
 
     return parser
 
@@ -350,10 +360,15 @@ def main():
         logger=logger,
         cache=cache,
         item_limit=args.limit,
+        skip_existing_check=args.skip_existing_check,
     )
 
     if args.limit:
         logger.warning(f"⚠️  Debug mode: limiting to {args.limit} items per category")
+
+    if args.clear_failures:
+        count = cache.clear_failures()
+        logger.info(f"Cleared {count} cached failures — tracks will be retried")
 
     # Determine what to sync
     async def run_sync():

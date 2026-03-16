@@ -59,10 +59,12 @@ class SyncEngine:
         progress_callback=None,
         item_limit: Optional[int] = None,
         rate_limiter: Optional[RateLimiter] = None,
+        skip_existing_check: bool = False,
     ):
         self.spotify = spotify
         self.tidal = tidal
         self.apple_music = apple_music
+        self.skip_existing_check = skip_existing_check
         self.cache = cache or MatchCache()
         self.rate_limiter = rate_limiter or RateLimiter(max_concurrent, rate_limit)
 
@@ -397,13 +399,21 @@ class SyncEngine:
             SyncConfig(
                 item_type="track",
                 fetch_source=self._fetch_spotify_saved_tracks,
-                fetch_existing_ids=self.apple_music_fetcher.get_library_song_ids,
+                fetch_existing_ids=(
+                    self.cache.get_all_apple_track_ids
+                    if self.skip_existing_check
+                    else self.apple_music_fetcher.get_library_song_ids
+                ),
                 search_item=self.apple_music_searcher.search_track,
                 get_source_id=lambda item: item.get("id"),
                 get_cache_match=self.cache.get_apple_track_match,
                 add_item=lambda apple_id: (
                     self.apple_music.add_songs_to_library([apple_id]),
                     self.apple_music.add_songs_to_favorites([apple_id]),
+                ),
+                batch_add=lambda ids: (
+                    self.apple_music.add_songs_to_library(ids),
+                    self.apple_music.add_songs_to_favorites(ids),
                 ),
                 add_to_library=self.library.add_tracks if self.library else None,
                 add_not_found=(self.library.add_not_found_track if self.library else None),
@@ -419,13 +429,18 @@ class SyncEngine:
             SyncConfig(
                 item_type="album",
                 fetch_source=self._fetch_spotify_saved_albums,
-                fetch_existing_ids=self.apple_music_fetcher.get_library_album_ids,
+                fetch_existing_ids=(
+                    self.cache.get_all_apple_album_ids
+                    if self.skip_existing_check
+                    else self.apple_music_fetcher.get_library_album_ids
+                ),
                 search_item=lambda item: self.apple_music_searcher.search_album(
                     item.get("album", {})
                 ),
                 get_source_id=lambda item: item.get("album", {}).get("id"),
                 get_cache_match=self.cache.get_apple_album_match,
                 add_item=lambda apple_id: self.apple_music.add_albums_to_library([apple_id]),
+                batch_add=lambda ids: self.apple_music.add_albums_to_library(ids),
                 add_to_library=self.library.add_albums if self.library else None,
                 add_not_found=(self.library.add_not_found_album if self.library else None),
                 progress_desc="Syncing albums to Apple Music",

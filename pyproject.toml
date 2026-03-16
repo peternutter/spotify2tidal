@@ -25,6 +25,7 @@ dependencies = [
     "tqdm>=4.64",
     "streamlit>=1.28.0",
     "watchdog>=6.0.0",
+    "thefuzz>=0.22.1",
 ]
 
 [project.urls]

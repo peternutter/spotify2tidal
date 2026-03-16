@@ -287,6 +287,21 @@ class MatchCache:
         self._failures.clear()
         self._auto_save()
 
+    def clear_failures(self) -> int:
+        """Clear all cached failures. Returns the number cleared."""
+        count = len(self._failures)
+        self._failures.clear()
+        self._auto_save()
+        return count
+
+    async def get_all_apple_track_ids(self) -> set[str]:
+        """Return all cached Apple Music track IDs (used as fast existing-check)."""
+        return set(self._reverse_apple_track_matches.keys())
+
+    async def get_all_apple_album_ids(self) -> set[str]:
+        """Return all cached Apple Music album IDs (used as fast existing-check)."""
+        return set(self._reverse_apple_album_matches.keys())
+
     def get_stats(self) -> dict:
         """Get cache statistics."""
         return {

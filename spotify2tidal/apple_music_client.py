@@ -51,12 +51,21 @@ class AppleMusicClient:
 
     def _request(self, method: str, url: str, max_retries: int = 5, **kwargs) -> dict:
         """Make an API request with rate limit retry."""
+        kwargs.setdefault("timeout", 30)
         for attempt in range(max_retries):
-            resp = self.session.request(method, url, **kwargs)
-
-            if resp.status_code == 429:
+            try:
+                resp = self.session.request(method, url, **kwargs)
+            except requests.exceptions.Timeout:
                 wait = min(2**attempt, 30)
-                logger.warning(f"Rate limited, waiting {wait}s (attempt {attempt + 1})")
+                logger.warning(f"Request timed out, waiting {wait}s (attempt {attempt + 1})")
+                time.sleep(wait)
+                continue
+
+            if resp.status_code == 429 or resp.status_code in (502, 503, 504):
+                wait = min(2**attempt, 30)
+                logger.warning(
+                    f"Server error {resp.status_code}, waiting {wait}s " f"(attempt {attempt + 1})"
+                )
                 time.sleep(wait)
                 continue
 

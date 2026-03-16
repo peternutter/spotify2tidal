@@ -49,6 +49,9 @@ class AppleMusicSearcher:
         if self.cache.has_recent_failure(failure_key):
             return None
 
+        # Track whether we got real search results (vs throttled empty responses)
+        got_results = False
+
         # Try primary client, then fallback (e.g., different storefront)
         for client in self._clients():
             # Strategy 1: ISRC match (most reliable)
@@ -60,13 +63,17 @@ class AppleMusicSearcher:
                     return result
 
             # Strategy 2: Text search with matching
-            result = await self._search_by_text(spotify_track, client=client)
+            result, had_results = await self._search_by_text(spotify_track, client=client)
             if result:
                 self.cache.cache_apple_track_match(spotify_id, result)
                 return result
+            if had_results:
+                got_results = True
 
-        # Cache the failure
-        self.cache.cache_failure(failure_key)
+        # Only cache failure if we actually got search results back
+        # (empty results likely means throttling, not a real miss)
+        if got_results:
+            self.cache.cache_failure(failure_key)
         return None
 
     def _clients(self):
@@ -110,15 +117,16 @@ class AppleMusicSearcher:
 
     async def _search_by_text(
         self, spotify_track: dict, client: "Optional[AppleMusicClient]" = None
-    ) -> Optional[str]:
-        """Fallback text-based search."""
+    ) -> tuple[Optional[str], bool]:
+        """Fallback text-based search. Returns (match_id, had_results)."""
         client = client or self.client
         artists = spotify_track.get("artists", [])
         if not artists:
-            return None
+            return None, False
 
         track_name = spotify_track.get("name", "")
         artist_name = artists[0].get("name", "")
+        had_results = False
 
         # Try specific query first: "track artist"
         query = f"{simplify(track_name)} {simplify(artist_name)}"
@@ -126,9 +134,11 @@ class AppleMusicSearcher:
         await self.rate_limiter.acquire()
         try:
             results = await retry_async_call(client.search_catalog, query, "songs", 15)
+            if results:
+                had_results = True
             match = self._find_best_match(results, spotify_track)
             if match:
-                return match
+                return match, True
         except Exception as e:
             logger.debug(f"Text search failed for '{query}': {e}")
         finally:
@@ -141,18 +151,22 @@ class AppleMusicSearcher:
                 results = await retry_async_call(
                     client.search_catalog, simplify(track_name), "songs", 15
                 )
+                if results:
+                    had_results = True
                 match = self._find_best_match(results, spotify_track)
                 if match:
-                    return match
+                    return match, True
             except Exception as e:
                 logger.debug(f"Broad search failed for '{track_name}': {e}")
             finally:
                 self.rate_limiter.release()
 
-        return None
+        return None, had_results
 
     def _find_best_match(self, am_results: list, spotify_track: dict) -> Optional[str]:
         """Find the best matching Apple Music track from search results."""
+        from thefuzz import fuzz
+
         sp_name = normalize(simplify(spotify_track.get("name", ""))).lower()
         sp_artists = {
             normalize(simplify(a["name"])).lower() for a in spotify_track.get("artists", [])
@@ -165,18 +179,24 @@ class AppleMusicSearcher:
             am_artist = normalize(attrs.get("artistName", "")).lower()
             am_duration = attrs.get("durationInMillis", 0)
 
-            # Name must match
-            if sp_name not in am_name and am_name not in sp_name:
+            # Name: substring match OR fuzzy ratio >= 85
+            name_match = (
+                sp_name in am_name or am_name in sp_name or fuzz.ratio(sp_name, am_name) >= 85
+            )
+            if not name_match:
                 continue
 
-            # At least one artist must match
-            artist_match = any(a in am_artist or am_artist in a for a in sp_artists)
+            # Artist: substring match OR fuzzy partial ratio >= 85
+            artist_match = any(
+                a in am_artist or am_artist in a or fuzz.partial_ratio(a, am_artist) >= 85
+                for a in sp_artists
+            )
             if not artist_match:
                 continue
 
-            # Duration within 3 seconds
+            # Duration within 15 seconds
             if sp_duration and am_duration:
-                if abs(sp_duration - am_duration) > 3000:
+                if abs(sp_duration - am_duration) > 15000:
                     continue
 
             # Check for version mismatches (remix, live, acoustic, etc.)

@@ -109,9 +109,12 @@ def test_sync_albums_progress_not_matched_when_add_fails(tmp_path, sample_album)
     assert added == 0
     assert not_found == 0
 
-    assert len(events) == 1
-    assert events[0]["matched"] is False
-    assert events[0].get("failed") is True
+    assert len(events) == 2
+    # First event: matched during search phase
+    assert events[0]["matched"] is True
+    # Second event: failed during add phase
+    assert events[1]["matched"] is False
+    assert events[1].get("failed") is True
 
 
 def test_sync_albums_progress_matched_when_already_exists(tmp_path, sample_album):
@@ -179,6 +182,9 @@ def test_sync_artists_progress_not_matched_when_add_fails(tmp_path, sample_artis
     assert added == 0
     assert not_found == 0
 
-    assert len(events) == 1
-    assert events[0]["matched"] is False
-    assert events[0].get("failed") is True
+    assert len(events) == 2
+    # First event: matched during search phase
+    assert events[0]["matched"] is True
+    # Second event: failed during add phase
+    assert events[1]["matched"] is False
+    assert events[1].get("failed") is True

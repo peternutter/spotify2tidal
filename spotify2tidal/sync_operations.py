@@ -58,7 +58,6 @@ class SyncConfig:
 
     # Fetching functions
     fetch_source: Callable  # async () -> List[items]
-    fetch_existing_ids: Callable  # async () -> Set[id]
 
     # Search and matching
     search_item: Callable  # async (item) -> target_id or None
@@ -71,6 +70,8 @@ class SyncConfig:
     # Optional: library export callbacks
     add_to_library: Optional[Callable] = None  # (items) -> None
     add_not_found: Optional[Callable] = None  # (item) -> None
+    batch_add: Optional[Callable] = None  # (list[target_id]) -> None
+    fetch_existing_ids: Optional[Callable] = None  # async () -> Set[id], None to skip
 
     # Progress description
     progress_desc: str = "Syncing items"
@@ -106,20 +107,41 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
         source_items = engine._apply_limit(source_items)
 
         # Fetch existing IDs from target
-        existing_ids = await config.fetch_existing_ids()
-        logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
+        if config.fetch_existing_ids:
+            existing_ids = await config.fetch_existing_ids()
+            logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
+        else:
+            existing_ids = set()
+            logger.info(f"Skipping existing {config.item_type}s check")
 
         # Add to library export if available
         if config.add_to_library:
             config.add_to_library(source_items)
 
-        # Phase 2: Search and add with progress
+        # Phase 2: Pre-filter using cache to skip already-synced items
+        items_to_search = []
+        skipped = 0
+        for item in source_items:
+            source_id = config.get_source_id(item)
+            cached_id = config.get_cache_match(source_id)
+            if cached_id and cached_id in existing_ids:
+                skipped += 1
+            else:
+                items_to_search.append(item)
+
+        if skipped:
+            logger.info(
+                f"Skipped {skipped} {config.item_type}s already synced, "
+                f"{len(items_to_search)} to process"
+            )
+
+        # Phase 3: Search and collect results
         added = 0
         not_found = 0
-        skipped = 0
         not_found_items = []
+        items_to_add = []
 
-        for item in engine._progress_iter(source_items, config.progress_desc, phase="searching"):
+        for item in engine._progress_iter(items_to_search, config.progress_desc, phase="searching"):
             source_id = config.get_source_id(item)
             from_cache = config.get_cache_match(source_id) is not None
 
@@ -129,18 +151,10 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
                 if target_id in existing_ids:
                     skipped += 1
                     engine._report_progress(event="item", matched=True, from_cache=from_cache)
-                    continue  # Already exists
+                    continue  # Already exists (found via search, not cache)
 
-                try:
-                    await retry_async_call(config.add_item, target_id)
-                    added += 1
-                    # Log each added item
-                    item_name = _get_item_name(item, config.item_type)
-                    logger.info(f"  + Added: {item_name}")
-                    engine._report_progress(event="item", matched=True, from_cache=from_cache)
-                except Exception as e:
-                    logger.warning(f"Failed to add {config.item_type}: {e}")
-                    engine._report_progress(event="item", matched=False, failed=True)
+                items_to_add.append((target_id, item))
+                engine._report_progress(event="item", matched=True, from_cache=from_cache)
             else:
                 not_found += 1
                 item_name = _get_item_name(item, config.item_type)
@@ -148,6 +162,39 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
                 engine._report_progress(event="item", matched=False)
                 if config.add_not_found:
                     config.add_not_found(item)
+
+        # Phase 4: Batch add all found items
+        if items_to_add:
+            logger.info(f"Adding {len(items_to_add)} {config.item_type}s...")
+            if config.batch_add:
+                # Use batch add (e.g., Apple Music supports adding 100 at a time)
+                all_ids = [tid for tid, _ in items_to_add]
+                try:
+                    await retry_async_call(config.batch_add, all_ids)
+                    added = len(items_to_add)
+                    for _, item in items_to_add:
+                        item_name = _get_item_name(item, config.item_type)
+                        logger.info(f"  + Added: {item_name}")
+                except Exception as e:
+                    logger.warning(f"Batch add failed: {e}, falling back to one-by-one")
+                    for target_id, item in items_to_add:
+                        try:
+                            await retry_async_call(config.add_item, target_id)
+                            added += 1
+                            item_name = _get_item_name(item, config.item_type)
+                            logger.info(f"  + Added: {item_name}")
+                        except Exception as e2:
+                            logger.warning(f"Failed to add {config.item_type}: {e2}")
+            else:
+                for target_id, item in items_to_add:
+                    try:
+                        await retry_async_call(config.add_item, target_id)
+                        added += 1
+                        item_name = _get_item_name(item, config.item_type)
+                        logger.info(f"  + Added: {item_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to add {config.item_type}: {e}")
+                        engine._report_progress(event="item", matched=False, failed=True)
 
         logger.info(
             f"{config.item_type.title()}s: {added} added, "
@@ -187,8 +234,12 @@ async def sync_items_batched(
         source_items = engine._apply_limit(source_items)
 
         # Fetch existing IDs from target
-        existing_ids = await config.fetch_existing_ids()
-        logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
+        if config.fetch_existing_ids:
+            existing_ids = await config.fetch_existing_ids()
+            logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
+        else:
+            existing_ids = set()
+            logger.info(f"Skipping existing {config.item_type}s check")
 
         # Add to library export if available
         if config.add_to_library:

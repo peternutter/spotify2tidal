@@ -35,7 +35,7 @@ def simplify(text: str) -> str:
     _EDITION_TAGS = re.compile(
         r"^(remaster(ed)?|deluxe|expanded|anniversary|bonus|special|"
         r"radio\s*edit|single|extended|remix(ed)?|live|acoustic|"
-        r"mono|stereo|explicit|clean|original|version|edition|mix)\b",
+        r"mono|stereo|explicit|clean|original|version|edition|mix|medley)\b",
         re.IGNORECASE,
     )
     parts = text.split(" - ")
