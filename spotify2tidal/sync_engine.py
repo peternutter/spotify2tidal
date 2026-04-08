@@ -8,7 +8,7 @@ small and focused.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Set, Tuple
 
 import spotipy
 from tqdm import tqdm
@@ -16,7 +16,9 @@ from tqdm import tqdm
 from .cache import MatchCache
 from .fetchers import SpotifyFetcher
 from .library_exporter import LibraryExporter
+from .matching import normalize, simplify
 from .rate_limiter import RateLimiter
+from .retry_utils import retry_async_call
 from .sync_backup import export_backup as _export_backup
 from .sync_backup import export_tidal_library as _export_tidal_library
 from .sync_operations import SyncConfig, sync_items, sync_items_batched
@@ -388,6 +390,96 @@ class SyncEngine:
     async def _get_all_spotify_followed_artist_ids(self) -> Set[str]:
         return await self.spotify_fetcher.get_followed_artist_ids()
 
+    @staticmethod
+    def _normalize_apple_text(value: str) -> str:
+        return normalize(simplify(value or "")).lower().strip()
+
+    def _spotify_track_apple_key(self, track: dict) -> Optional[tuple[str, str, int]]:
+        name = self._normalize_apple_text(track.get("name", ""))
+        artists = track.get("artists", []) or []
+        artist = self._normalize_apple_text(artists[0].get("name", "") if artists else "")
+        duration_ms = int(track.get("duration_ms") or 0)
+        if not name or not artist:
+            return None
+        return (artist, name, round(duration_ms / 1000 / 5) if duration_ms else 0)
+
+    def _spotify_album_apple_key(self, album: dict) -> Optional[tuple[str, str]]:
+        name = self._normalize_apple_text(album.get("name", ""))
+        artists = album.get("artists", []) or []
+        artist = self._normalize_apple_text(artists[0].get("name", "") if artists else "")
+        if not name or not artist:
+            return None
+        return (artist, name)
+
+    def _apple_library_song_key(self, song: dict) -> Optional[tuple[str, str, int]]:
+        attrs = song.get("attributes", {})
+        name = self._normalize_apple_text(attrs.get("name", ""))
+        artist = self._normalize_apple_text(attrs.get("artistName", ""))
+        duration_ms = int(attrs.get("durationInMillis") or 0)
+        if not name or not artist:
+            return None
+        return (artist, name, round(duration_ms / 1000 / 5) if duration_ms else 0)
+
+    def _apple_library_album_key(self, album: dict) -> Optional[tuple[str, str]]:
+        attrs = album.get("attributes", {})
+        name = self._normalize_apple_text(attrs.get("name", ""))
+        artist = self._normalize_apple_text(attrs.get("artistName", ""))
+        if not name or not artist:
+            return None
+        return (artist, name)
+
+    async def _get_apple_song_state(self) -> dict[str, set]:
+        songs = await self.apple_music_fetcher.get_library_songs()
+        ids = set()
+        keys = set()
+        for song in songs:
+            play_params = song.get("attributes", {}).get("playParams", {})
+            catalog_id = play_params.get("catalogId") or play_params.get("reportingId")
+            if catalog_id:
+                ids.add(str(catalog_id))
+            song_id = song.get("id")
+            if song_id:
+                ids.add(str(song_id))
+            key = self._apple_library_song_key(song)
+            if key:
+                keys.add(key)
+        return {"ids": ids, "keys": keys}
+
+    async def _get_apple_album_state(self) -> dict[str, set]:
+        albums = await self.apple_music_fetcher.get_library_albums()
+        ids = set()
+        keys = set()
+        for album in albums:
+            album_id = album.get("id")
+            if album_id:
+                ids.add(str(album_id))
+            key = self._apple_library_album_key(album)
+            if key:
+                keys.add(key)
+        return {"ids": ids, "keys": keys}
+
+    def _apple_song_exists(self, item: dict, target_id: str, state: Any) -> bool:
+        track = item.get("track", item)
+        if isinstance(state, dict):
+            ids = state.get("ids", set())
+            keys = state.get("keys", set())
+        else:
+            ids = state or set()
+            keys = set()
+        key = self._spotify_track_apple_key(track)
+        return str(target_id) in ids or (key is not None and key in keys)
+
+    def _apple_album_exists(self, item: dict, target_id: str, state: Any) -> bool:
+        album = item.get("album", item)
+        if isinstance(state, dict):
+            ids = state.get("ids", set())
+            keys = state.get("keys", set())
+        else:
+            ids = state or set()
+            keys = set()
+        key = self._spotify_album_apple_key(album)
+        return str(target_id) in ids or (key is not None and key in keys)
+
     # ---------------------------------------------------------------------
     # Apple Music sync (Spotify -> Apple Music)
     # ---------------------------------------------------------------------
@@ -399,11 +491,14 @@ class SyncEngine:
             SyncConfig(
                 item_type="track",
                 fetch_source=self._fetch_spotify_saved_tracks,
-                fetch_existing_ids=(
-                    self.cache.get_all_apple_track_ids
-                    if self.skip_existing_check
-                    else self.apple_music_fetcher.get_library_song_ids
-                ),
+                # Apple Music's "library" and "favorites" are separate concepts
+                # and the API has no read endpoint for favorites. If we skip
+                # items based on library presence, songs that are in library
+                # but not yet favorited get silently dropped — they never
+                # reach add_songs_to_favorites. So always run the favorite
+                # call for every matched track; it's idempotent.
+                fetch_existing_ids=None,
+                existing_matcher=None,
                 search_item=self.apple_music_searcher.search_track,
                 get_source_id=lambda item: item.get("id"),
                 get_cache_match=self.cache.get_apple_track_match,
@@ -415,6 +510,14 @@ class SyncEngine:
                     self.apple_music.add_songs_to_library(ids),
                     self.apple_music.add_songs_to_favorites(ids),
                 ),
+                # No favorites read endpoint exists, so we can't verify the
+                # favorite call took effect. The library-based verification
+                # used previously here marked any favorite of an item not in
+                # library (or whose key didn't match) as "not confirmed" and
+                # wiped the cache entry — see sync_operations.py verify loop.
+                verify_added_state=None,
+                added_matcher=None,
+                clear_cached_match=self.cache.remove_apple_track_match,
                 add_to_library=self.library.add_tracks if self.library else None,
                 add_not_found=(self.library.add_not_found_track if self.library else None),
                 progress_desc="Syncing favorite tracks to Apple Music",
@@ -432,21 +535,68 @@ class SyncEngine:
                 fetch_existing_ids=(
                     self.cache.get_all_apple_album_ids
                     if self.skip_existing_check
-                    else self.apple_music_fetcher.get_library_album_ids
+                    else self._get_apple_album_state
                 ),
-                search_item=lambda item: self.apple_music_searcher.search_album(
-                    item.get("album", {})
-                ),
+                existing_matcher=self._apple_album_exists,
+                search_item=lambda item: self._search_apple_album(item.get("album", {})),
                 get_source_id=lambda item: item.get("album", {}).get("id"),
                 get_cache_match=self.cache.get_apple_album_match,
                 add_item=lambda apple_id: self.apple_music.add_albums_to_library([apple_id]),
                 batch_add=lambda ids: self.apple_music.add_albums_to_library(ids),
+                verify_added_state=self._get_apple_album_state,
+                added_matcher=self._apple_album_exists,
+                verify_poll_delays=(0.0, 3.0, 8.0, 15.0),
+                clear_cached_match=self.cache.remove_apple_album_match,
                 add_to_library=self.library.add_albums if self.library else None,
                 add_not_found=(self.library.add_not_found_album if self.library else None),
                 progress_desc="Syncing albums to Apple Music",
             ),
             self,
         )
+
+    async def _search_apple_album(self, spotify_album: dict) -> Optional[str]:
+        """Search Apple album; if standard search fails, infer via track matches."""
+        if not spotify_album or not spotify_album.get("id"):
+            return None
+        # First try normal album search
+        album_id = await self.apple_music_searcher.search_album(spotify_album)
+        if album_id:
+            return album_id
+
+        # Fallback: infer album from matched tracks (first N)
+        try:
+            tracks = await self.spotify_fetcher.get_album_tracks(spotify_album["id"], limit=8)
+        except Exception:
+            tracks = []
+        if not tracks:
+            return None
+
+        album_votes: dict[str, int] = {}
+        for sp_track in tracks:
+            try:
+                am_song_id = await self.apple_music_searcher.search_track(sp_track)
+            except Exception:
+                am_song_id = None
+            if not am_song_id:
+                continue
+            try:
+                am_song = await retry_async_call(self.apple_music.get_catalog_song, am_song_id)
+            except Exception:
+                am_song = None
+            if not am_song:
+                continue
+            rel = (am_song.get("relationships") or {}).get("albums") or {}
+            data = rel.get("data") or []
+            if not data:
+                continue
+            parent_album_id = data[0].get("id")
+            if parent_album_id:
+                album_votes[parent_album_id] = album_votes.get(parent_album_id, 0) + 1
+
+        if not album_votes:
+            return None
+        # Return the album with the most votes
+        return max(album_votes.items(), key=lambda kv: kv[1])[0]
 
     async def sync_playlist_to_apple_music(self, spotify_playlist_id: str) -> Tuple[int, int]:
         """Sync a single Spotify playlist to Apple Music."""
@@ -520,6 +670,30 @@ class SyncEngine:
                 f"'{playlist_name}'",
             )
 
+        return (len(apple_ids_to_add), not_found_count)
+
+    async def sync_favorites_playlist_to_apple_music(self, name: str = "Spotify Liked Songs") -> Tuple[int, int]:
+        """Create or update an Apple playlist containing all Spotify liked songs in order."""
+        self._require_apple_music()
+        spotify_tracks = await self._fetch_spotify_saved_tracks()
+        spotify_tracks = self._apply_limit(spotify_tracks)
+
+        apple_ids_to_add: list[str] = []
+        not_found_count = 0
+
+        for track in self._progress_iter(
+            spotify_tracks, f"Preparing liked songs playlist: {name}", phase="searching"
+        ):
+            apple_id = await self.apple_music_searcher.search_track(track)
+            if apple_id:
+                apple_ids_to_add.append(apple_id)
+            else:
+                not_found_count += 1
+
+        if apple_ids_to_add:
+            am_playlist_id = self.apple_music.get_or_create_playlist(name)
+            if am_playlist_id:
+                self.apple_music.add_tracks_to_playlist(am_playlist_id, apple_ids_to_add)
         return (len(apple_ids_to_add), not_found_count)
 
     async def sync_all_playlists_to_apple_music(

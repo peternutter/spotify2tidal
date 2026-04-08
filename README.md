@@ -68,6 +68,8 @@ pip install -e .
 
 ### Apple Music (optional)
 
+> **Heads up:** Apple Music now has a built-in "Move music from Spotify to Apple Music" importer (rolled out in 2025 via Apple's partnership with SongShift). For most people that is the easier path — this project's Apple Music sync predates it and mostly exists for folks who want scripted/incremental control.
+
 Apple Music sync uses cookie-based authentication — no Apple Developer account needed. Tokens last ~6 months.
 
 1. Open https://music.apple.com in your browser and sign in

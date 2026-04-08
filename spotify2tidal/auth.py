@@ -37,6 +37,7 @@ def open_spotify_session(config: dict, cache_path: Optional[str] = None) -> spot
         - client_secret: Spotify app client secret
         - redirect_uri: OAuth redirect URI (default: http://127.0.0.1:8888/callback)
         - username: Spotify username (optional)
+        - show_dialog: Whether to force Spotify consent/account selection (default: False)
         - open_browser: Whether to open browser for auth (default: True)
 
     Args:
@@ -62,6 +63,7 @@ def open_spotify_session(config: dict, cache_path: Optional[str] = None) -> spot
         redirect_uri=redirect_uri,
         scope=SPOTIFY_SCOPES,
         username=config.get("username"),
+        show_dialog=config.get("show_dialog", False),
         open_browser=config.get("open_browser", True),
         cache_path=cache_path,
     )

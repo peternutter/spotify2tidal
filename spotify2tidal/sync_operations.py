@@ -6,6 +6,8 @@ code duplication across sync_favorites, sync_albums, sync_artists, and
 their reverse counterparts.
 """
 
+import asyncio
+
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
@@ -72,6 +74,12 @@ class SyncConfig:
     add_not_found: Optional[Callable] = None  # (item) -> None
     batch_add: Optional[Callable] = None  # (list[target_id]) -> None
     fetch_existing_ids: Optional[Callable] = None  # async () -> Set[id], None to skip
+    existing_matcher: Optional[Callable] = None  # (item, target_id, state) -> bool
+    verify_added_ids: Optional[Callable] = None  # async () -> Set[id], verifies writes landed
+    verify_added_state: Optional[Callable] = None  # async () -> arbitrary state snapshot
+    added_matcher: Optional[Callable] = None  # (item, target_id, state) -> bool
+    verify_poll_delays: tuple[float, ...] = (0.0, 2.0, 5.0, 10.0)
+    clear_cached_match: Optional[Callable] = None  # (source_id, target_id) -> None
 
     # Progress description
     progress_desc: str = "Syncing items"
@@ -108,11 +116,18 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
 
         # Fetch existing IDs from target
         if config.fetch_existing_ids:
-            existing_ids = await config.fetch_existing_ids()
-            logger.info(f"Found {len(existing_ids)} existing {config.item_type}s on target")
+            existing_state = await config.fetch_existing_ids()
+            logger.info(f"Found existing {config.item_type}s on target")
         else:
-            existing_ids = set()
+            existing_state = set()
             logger.info(f"Skipping existing {config.item_type}s check")
+
+        def already_exists(item, target_id) -> bool:
+            if not target_id:
+                return False
+            if config.existing_matcher:
+                return bool(config.existing_matcher(item, target_id, existing_state))
+            return target_id in existing_state
 
         # Add to library export if available
         if config.add_to_library:
@@ -124,7 +139,7 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
         for item in source_items:
             source_id = config.get_source_id(item)
             cached_id = config.get_cache_match(source_id)
-            if cached_id and cached_id in existing_ids:
+            if cached_id and already_exists(item, cached_id):
                 skipped += 1
             else:
                 items_to_search.append(item)
@@ -148,7 +163,7 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
             target_id = await config.search_item(item)
 
             if target_id:
-                if target_id in existing_ids:
+                if already_exists(item, target_id):
                     skipped += 1
                     engine._report_progress(event="item", matched=True, from_cache=from_cache)
                     continue  # Already exists (found via search, not cache)
@@ -166,35 +181,107 @@ async def sync_items(config: SyncConfig, engine: "SyncEngine") -> Tuple[int, int
         # Phase 4: Batch add all found items
         if items_to_add:
             logger.info(f"Adding {len(items_to_add)} {config.item_type}s...")
+            attempted_adds = []
             if config.batch_add:
                 # Use batch add (e.g., Apple Music supports adding 100 at a time)
                 all_ids = [tid for tid, _ in items_to_add]
                 try:
                     await retry_async_call(config.batch_add, all_ids)
-                    added = len(items_to_add)
-                    for _, item in items_to_add:
-                        item_name = _get_item_name(item, config.item_type)
-                        logger.info(f"  + Added: {item_name}")
+                    attempted_adds = list(items_to_add)
                 except Exception as e:
                     logger.warning(f"Batch add failed: {e}, falling back to one-by-one")
                     for target_id, item in items_to_add:
                         try:
                             await retry_async_call(config.add_item, target_id)
-                            added += 1
-                            item_name = _get_item_name(item, config.item_type)
-                            logger.info(f"  + Added: {item_name}")
+                            attempted_adds.append((target_id, item))
                         except Exception as e2:
                             logger.warning(f"Failed to add {config.item_type}: {e2}")
+                            engine._report_progress(event="item", matched=False, failed=True)
             else:
                 for target_id, item in items_to_add:
                     try:
                         await retry_async_call(config.add_item, target_id)
-                        added += 1
-                        item_name = _get_item_name(item, config.item_type)
-                        logger.info(f"  + Added: {item_name}")
+                        attempted_adds.append((target_id, item))
                     except Exception as e:
                         logger.warning(f"Failed to add {config.item_type}: {e}")
                         engine._report_progress(event="item", matched=False, failed=True)
+
+            if attempted_adds and config.verify_added_state and config.added_matcher:
+                confirmed = []
+                pending = list(attempted_adds)
+
+                for delay in config.verify_poll_delays:
+                    if delay > 0:
+                        await asyncio.sleep(delay)
+                    try:
+                        verification_state = await config.verify_added_state()
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not verify added {config.item_type}s on target: {e}. "
+                            "Falling back to optimistic counts."
+                        )
+                        verification_state = None
+
+                    if verification_state is None:
+                        confirmed = list(attempted_adds)
+                        pending = []
+                        break
+
+                    still_pending = []
+                    for target_id, item in pending:
+                        if config.added_matcher(item, target_id, verification_state):
+                            confirmed.append((target_id, item))
+                        else:
+                            still_pending.append((target_id, item))
+                    pending = still_pending
+                    if not pending:
+                        break
+
+                for _, item in confirmed:
+                    added += 1
+                    item_name = _get_item_name(item, config.item_type)
+                    logger.info(f"  + Added: {item_name}")
+
+                for target_id, item in pending:
+                    item_name = _get_item_name(item, config.item_type)
+                    logger.warning(
+                        f"  ! Not confirmed on target after add attempt: {item_name}"
+                    )
+                    engine._report_progress(event="item", matched=False, failed=True)
+                    if config.clear_cached_match:
+                        config.clear_cached_match(config.get_source_id(item), target_id)
+            elif attempted_adds and config.verify_added_ids:
+                try:
+                    confirmed_ids = await config.verify_added_ids()
+                except Exception as e:
+                    logger.warning(
+                        f"Could not verify added {config.item_type}s on target: {e}. "
+                        "Falling back to optimistic counts."
+                    )
+                    confirmed_ids = None
+
+                for target_id, item in attempted_adds:
+                    item_name = _get_item_name(item, config.item_type)
+                    if confirmed_ids is None or target_id in confirmed_ids:
+                        added += 1
+                        logger.info(f"  + Added: {item_name}")
+                        continue
+
+                    logger.warning(
+                        f"  ! Not confirmed on target after add attempt: {item_name}"
+                    )
+                    not_found += 1
+                    not_found_items.append(item_name)
+                    engine._report_progress(event="item", matched=False, failed=True)
+                    if config.add_not_found:
+                        config.add_not_found(item)
+                    if config.clear_cached_match:
+                        config.clear_cached_match(config.get_source_id(item), target_id)
+            else:
+                for _, item in attempted_adds:
+                    added += 1
+                    item_name = _get_item_name(item, config.item_type)
+                    logger.info(f"  + Added: {item_name}")
 
         logger.info(
             f"{config.item_type.title()}s: {added} added, "

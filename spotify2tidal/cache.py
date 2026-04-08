@@ -183,6 +183,17 @@ class MatchCache:
         self._reverse_apple_track_matches[apple_id] = spotify_id
         self._auto_save()
 
+    def remove_apple_track_match(self, spotify_id: str, apple_id: Optional[str] = None):
+        """Remove a cached Spotify->Apple Music track match."""
+        cached_id = self._apple_track_matches.get(spotify_id)
+        if cached_id is None:
+            return
+        if apple_id is not None and cached_id != apple_id:
+            return
+        self._apple_track_matches.pop(spotify_id, None)
+        self._reverse_apple_track_matches.pop(cached_id, None)
+        self._auto_save()
+
     def get_apple_album_match(self, spotify_id: str) -> Optional[str]:
         """Get cached Apple Music album ID for a Spotify album."""
         return self._apple_album_matches.get(spotify_id)
@@ -193,6 +204,17 @@ class MatchCache:
         self._reverse_apple_album_matches[apple_id] = spotify_id
         self._auto_save()
 
+    def remove_apple_album_match(self, spotify_id: str, apple_id: Optional[str] = None):
+        """Remove a cached Spotify->Apple Music album match."""
+        cached_id = self._apple_album_matches.get(spotify_id)
+        if cached_id is None:
+            return
+        if apple_id is not None and cached_id != apple_id:
+            return
+        self._apple_album_matches.pop(spotify_id, None)
+        self._reverse_apple_album_matches.pop(cached_id, None)
+        self._auto_save()
+
     def get_apple_artist_match(self, spotify_id: str) -> Optional[str]:
         """Get cached Apple Music artist ID for a Spotify artist."""
         return self._apple_artist_matches.get(spotify_id)
@@ -201,6 +223,17 @@ class MatchCache:
         """Cache a successful Spotify->Apple Music artist match."""
         self._apple_artist_matches[spotify_id] = apple_id
         self._reverse_apple_artist_matches[apple_id] = spotify_id
+        self._auto_save()
+
+    def remove_apple_artist_match(self, spotify_id: str, apple_id: Optional[str] = None):
+        """Remove a cached Spotify->Apple Music artist match."""
+        cached_id = self._apple_artist_matches.get(spotify_id)
+        if cached_id is None:
+            return
+        if apple_id is not None and cached_id != apple_id:
+            return
+        self._apple_artist_matches.pop(spotify_id, None)
+        self._reverse_apple_artist_matches.pop(cached_id, None)
         self._auto_save()
 
     # =========================================================================

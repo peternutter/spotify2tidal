@@ -116,6 +116,24 @@ class SpotifyFetcher:
 
         return tracks
 
+    async def get_album_tracks(self, album_id: str, limit: Optional[int] = None) -> List[dict]:
+        """Get tracks from a Spotify album (optionally limited)."""
+        tracks: List[dict] = []
+        results = await retry_async_call(self.spotify.album_tracks, album_id)
+
+        while True:
+            for item in results.get("items", []):
+                if item and item.get("id"):
+                    tracks.append(item)
+                if limit and len(tracks) >= limit:
+                    return tracks[:limit]
+
+            if not results.get("next"):
+                break
+            results = await retry_async_call(self.spotify.next, results)
+
+        return tracks
+
     async def get_saved_shows(self, limit: Optional[int] = None) -> List[dict]:
         """Get saved shows/podcasts from Spotify (optionally limited)."""
         shows = []

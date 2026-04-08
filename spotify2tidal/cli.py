@@ -6,6 +6,7 @@ Production-ready CLI with structured logging and colorized output.
 
 import argparse
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -15,6 +16,26 @@ from .auth import open_apple_music_session, open_spotify_session, open_tidal_ses
 from .cache import MatchCache
 from .logging_utils import SyncLogger, UserErrors
 from .sync_engine import SyncEngine
+
+
+class _SyncLoggerBridgeHandler(logging.Handler):
+    """Forwards stdlib `logging` records to a SyncLogger so warnings/errors
+    from modules like apple_music_client surface in the CLI output instead of
+    being silently swallowed by the unconfigured root logger."""
+
+    def __init__(self, sync_logger: SyncLogger):
+        super().__init__(level=logging.WARNING)
+        self._sync_logger = sync_logger
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+        except Exception:
+            return
+        if record.levelno >= logging.ERROR:
+            self._sync_logger.error(msg)
+        else:
+            self._sync_logger.warning(msg)
 
 
 def load_config(config_path: str) -> dict:
@@ -78,6 +99,16 @@ Tips:
         "-f",
         action="store_true",
         help="Sync liked/saved tracks to Tidal favorites",
+    )
+    parser.add_argument(
+        "--liked-playlist",
+        action="store_true",
+        help="When syncing favorites to Apple Music, also create an Apple playlist with all liked songs",
+    )
+    parser.add_argument(
+        "--liked-playlist-name",
+        default="Spotify Liked Songs",
+        help="Name of the Apple playlist to create for liked songs (with --liked-playlist)",
     )
     parser.add_argument(
         "--playlists",
@@ -252,6 +283,15 @@ def main():
         quiet=args.quiet,
         use_color=not args.no_color,
     )
+
+    # Surface stdlib `logging` warnings (e.g. from apple_music_client) via the
+    # SyncLogger so the user actually sees them. Without this the root logger
+    # has no handler and warnings are silently dropped.
+    root_logger = logging.getLogger()
+    if not any(isinstance(h, _SyncLoggerBridgeHandler) for h in root_logger.handlers):
+        root_logger.addHandler(_SyncLoggerBridgeHandler(logger))
+        if root_logger.level > logging.WARNING or root_logger.level == logging.NOTSET:
+            root_logger.setLevel(logging.WARNING)
 
     # Determine direction
     if args.to_apple_music:
@@ -459,6 +499,17 @@ def main():
                     logger.progress("Syncing liked songs to Apple Music...")
                     added, not_found = await engine.sync_favorites_to_apple_music()
                     results["favorites"] = {"added": added, "not_found": not_found}
+                    if args.liked_playlist:
+                        logger.progress(
+                            f"Creating Apple playlist for liked songs: {args.liked_playlist_name}..."
+                        )
+                        pl_added, pl_missing = await engine.sync_favorites_playlist_to_apple_music(
+                            name=args.liked_playlist_name
+                        )
+                        results["favorites_playlist"] = {
+                            "added": pl_added,
+                            "not_found": pl_missing,
+                        }
 
                 if args.albums:
                     logger.progress("Syncing saved albums to Apple Music...")

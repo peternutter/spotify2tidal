@@ -42,7 +42,9 @@ class AppleMusicSearcher:
         # Check cache
         cached = self.cache.get_apple_track_match(spotify_id)
         if cached is not None:
-            return cached if cached else None
+            if not self.fallback_client or await self._is_track_available_in_primary(cached):
+                return cached
+            self.cache.remove_apple_track_match(spotify_id, cached)
 
         # Check failure cache
         failure_key = f"apple:{spotify_id}"
@@ -76,6 +78,46 @@ class AppleMusicSearcher:
             self.cache.cache_failure(failure_key)
         return None
 
+    async def _is_track_available_in_primary(self, song_id: str) -> bool:
+        """Check whether a catalog track ID exists in the primary storefront."""
+        primary_song = await retry_async_call(self.client.get_catalog_song, song_id)
+        return bool(primary_song)
+
+    async def _is_album_available_in_primary(self, album_id: str) -> bool:
+        """Check whether a catalog album ID exists in the primary storefront."""
+        primary_album = await retry_async_call(self.client.get_catalog_album, album_id)
+        return bool(primary_album)
+
+    async def _validate_catalog_track_id(self, song_id: Optional[str], client: "AppleMusicClient") -> Optional[str]:
+        """Ensure a fallback storefront match is available in the primary storefront."""
+        if not song_id:
+            return None
+        if client is self.client or not self.fallback_client:
+            return song_id
+        if await self._is_track_available_in_primary(song_id):
+            return song_id
+        logger.debug(
+            f"Rejecting fallback-only Apple Music track {song_id}: "
+            f"not available in primary storefront {self.client.storefront}"
+        )
+        return None
+
+    async def _validate_catalog_album_id(
+        self, album_id: Optional[str], client: "AppleMusicClient"
+    ) -> Optional[str]:
+        """Ensure a fallback storefront album is available in the primary storefront."""
+        if not album_id:
+            return None
+        if client is self.client or not self.fallback_client:
+            return album_id
+        if await self._is_album_available_in_primary(album_id):
+            return album_id
+        logger.debug(
+            f"Rejecting fallback-only Apple Music album {album_id}: "
+            f"not available in primary storefront {self.client.storefront}"
+        )
+        return None
+
     def _clients(self):
         """Yield primary client, then fallback if available."""
         yield self.client
@@ -91,6 +133,9 @@ class AppleMusicSearcher:
         try:
             song = await retry_async_call(client.search_catalog_by_isrc, isrc)
             if song:
+                validated_id = await self._validate_catalog_track_id(song.get("id"), client)
+                if not validated_id:
+                    return None
                 # Verify it's a reasonable match (ISRC should be definitive,
                 # but check artist to avoid rare ISRC reuse)
                 am_artist = song.get("attributes", {}).get("artistName", "").lower()
@@ -101,13 +146,13 @@ class AppleMusicSearcher:
                     or normalize(am_artist) in normalize(simplify(a))
                     for a in sp_artists
                 ):
-                    return song.get("id")
+                    return validated_id
                 # Even if artist doesn't match perfectly, ISRC is very reliable
                 # Accept it anyway but log the mismatch
                 logger.debug(
                     f"ISRC match with artist mismatch: " f"Spotify={sp_artists} Apple={am_artist}"
                 )
-                return song.get("id")
+                return validated_id
         except Exception as e:
             logger.debug(f"ISRC search failed for {isrc}: {e}")
         finally:
@@ -136,7 +181,7 @@ class AppleMusicSearcher:
             results = await retry_async_call(client.search_catalog, query, "songs", 15)
             if results:
                 had_results = True
-            match = self._find_best_match(results, spotify_track)
+            match = await self._find_best_match(results, spotify_track, client)
             if match:
                 return match, True
         except Exception as e:
@@ -153,7 +198,7 @@ class AppleMusicSearcher:
                 )
                 if results:
                     had_results = True
-                match = self._find_best_match(results, spotify_track)
+                match = await self._find_best_match(results, spotify_track, client)
                 if match:
                     return match, True
             except Exception as e:
@@ -163,7 +208,9 @@ class AppleMusicSearcher:
 
         return None, had_results
 
-    def _find_best_match(self, am_results: list, spotify_track: dict) -> Optional[str]:
+    async def _find_best_match(
+        self, am_results: list, spotify_track: dict, client: "AppleMusicClient"
+    ) -> Optional[str]:
         """Find the best matching Apple Music track from search results."""
         from thefuzz import fuzz
 
@@ -203,7 +250,7 @@ class AppleMusicSearcher:
             if self._has_version_mismatch(spotify_track.get("name", ""), attrs.get("name", "")):
                 continue
 
-            return result.get("id")
+            return await self._validate_catalog_track_id(result.get("id"), client)
 
         return None
 
@@ -233,7 +280,9 @@ class AppleMusicSearcher:
 
         cached = self.cache.get_apple_album_match(spotify_id)
         if cached is not None:
-            return cached if cached else None
+            if not self.fallback_client or await self._is_album_available_in_primary(cached):
+                return cached
+            self.cache.remove_apple_album_match(spotify_id, cached)
 
         artists = spotify_album.get("artists", [])
         if not artists:
@@ -276,6 +325,9 @@ class AppleMusicSearcher:
                     continue
 
                 album_id = result.get("id")
+                album_id = await self._validate_catalog_album_id(album_id, client)
+                if not album_id:
+                    continue
                 self.cache.cache_apple_album_match(spotify_id, album_id)
                 return album_id
 

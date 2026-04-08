@@ -164,3 +164,125 @@ def test_sync_items_batched_batches_and_handles_batch_failures():
     assert added == 2
     assert not_found == 0
     assert not_found_items == []
+
+
+def test_sync_items_verifies_batch_adds_before_counting_success():
+    engine = _Engine()
+
+    async def fetch_source():
+        return [{"id": "a"}, {"id": "b"}]
+
+    async def fetch_existing_ids():
+        return set()
+
+    async def search_item(item: dict):
+        return {"a": "am1", "b": "am2"}[item["id"]]
+
+    def get_source_id(item: dict) -> str:
+        return item["id"]
+
+    def get_cache_match(source_id: str):
+        return {"a": "am1", "b": "am2"}[source_id]
+
+    batch_calls = []
+
+    def batch_add(ids):
+        batch_calls.append(list(ids))
+
+    async def verify_added_ids():
+        return {"am1"}
+
+    cleared = []
+
+    def clear_cached_match(source_id: str, target_id: str):
+        cleared.append((source_id, target_id))
+
+    not_found_items = []
+
+    def add_not_found(item: dict):
+        not_found_items.append(item)
+
+    config = SyncConfig(
+        item_type="track",
+        fetch_source=fetch_source,
+        fetch_existing_ids=fetch_existing_ids,
+        search_item=search_item,
+        get_source_id=get_source_id,
+        get_cache_match=get_cache_match,
+        add_item=lambda _x: None,
+        add_not_found=add_not_found,
+        batch_add=batch_add,
+        verify_added_ids=verify_added_ids,
+        clear_cached_match=clear_cached_match,
+        progress_desc="Syncing tracks",
+        reverse_order=False,
+    )
+
+    added, not_found = asyncio.run(sync_items(config, engine))  # type: ignore[arg-type]
+
+    assert batch_calls == [["am1", "am2"]]
+    assert added == 1
+    assert not_found == 1
+    assert [i["id"] for i in not_found_items] == ["b"]
+    assert cleared == [("b", "am2")]
+
+
+def test_sync_items_polls_verification_state_until_items_appear():
+    engine = _Engine()
+
+    async def fetch_source():
+        return [{"id": "a", "key": "k1"}, {"id": "b", "key": "k2"}]
+
+    async def fetch_existing_state():
+        return {"keys": set()}
+
+    async def search_item(item: dict):
+        return {"a": "am1", "b": "am2"}[item["id"]]
+
+    def get_source_id(item: dict) -> str:
+        return item["id"]
+
+    def get_cache_match(_source_id: str):
+        return None
+
+    def existing_matcher(item: dict, target_id: str, state: dict) -> bool:
+        return item["key"] in state.get("keys", set()) or target_id in state.get("ids", set())
+
+    verification_states = [
+        {"keys": {"k1"}, "ids": set()},
+        {"keys": {"k1", "k2"}, "ids": set()},
+    ]
+
+    async def verify_added_state():
+        return verification_states.pop(0)
+
+    def added_matcher(item: dict, target_id: str, state: dict) -> bool:
+        return existing_matcher(item, target_id, state)
+
+    batch_calls = []
+
+    def batch_add(ids):
+        batch_calls.append(list(ids))
+
+    config = SyncConfig(
+        item_type="track",
+        fetch_source=fetch_source,
+        fetch_existing_ids=fetch_existing_state,
+        existing_matcher=existing_matcher,
+        search_item=search_item,
+        get_source_id=get_source_id,
+        get_cache_match=get_cache_match,
+        add_item=lambda _x: None,
+        batch_add=batch_add,
+        verify_added_state=verify_added_state,
+        added_matcher=added_matcher,
+        verify_poll_delays=(0.0, 0.0),
+        progress_desc="Syncing tracks",
+        reverse_order=False,
+    )
+
+    added, not_found = asyncio.run(sync_items(config, engine))  # type: ignore[arg-type]
+
+    assert batch_calls == [["am1", "am2"]]
+    assert added == 2
+    assert not_found == 0

@@ -29,25 +29,32 @@ class AppleMusicClient:
     ):
         self.storefront = storefront
         self.session = requests.Session()
-        self.session.headers.update(
-            {
-                "Authorization": f"Bearer {bearer_token}"
-                if not bearer_token.startswith("Bearer ")
-                else bearer_token,
-                "Media-User-Token": media_user_token,
-                "Cookie": cookies,
-                "Origin": "https://music.apple.com",
-                "Referer": "https://music.apple.com/",
-                "Host": "amp-api.music.apple.com",
-                "Accept": "application/json",
-                "Accept-Encoding": "gzip, deflate, br",
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                ),
-            }
-        )
+        headers = {
+            "Authorization": f"Bearer {bearer_token}"
+            if not bearer_token.startswith("Bearer ")
+            else bearer_token,
+            # Apple Music API expects Music-User-Token; include legacy Media-User-Token for compatibility
+            "Music-User-Token": media_user_token,
+            "Media-User-Token": media_user_token,
+            "Origin": "https://music.apple.com",
+            "Referer": "https://music.apple.com/",
+            "Host": "amp-api.music.apple.com",
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate, br",
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        }
+        # IMPORTANT: only set Cookie header if we actually have cookies.
+        # Sending `Cookie: ""` causes Apple's amp-api to silently 202 all
+        # write requests (POST /v1/me/library, /v1/me/favorites) without
+        # actually persisting anything. Reads still work, so the bug is
+        # invisible unless you verify library state afterwards.
+        if cookies:
+            headers["Cookie"] = cookies
+        self.session.headers.update(headers)
 
     def _request(self, method: str, url: str, max_retries: int = 5, **kwargs) -> dict:
         """Make an API request with rate limit retry."""
@@ -158,6 +165,17 @@ class AppleMusicClient:
             logger.debug(f"Failed to get song {song_id}: {e}")
             return None
 
+    def get_catalog_album(self, album_id: str) -> Optional[dict]:
+        """Get a specific catalog album by ID."""
+        url = f"{BASE_URL}/v1/catalog/{self.storefront}/albums/{album_id}"
+        try:
+            data = self._request("GET", url)
+            items = data.get("data", [])
+            return items[0] if items else None
+        except AppleMusicAPIError as e:
+            logger.debug(f"Failed to get album {album_id}: {e}")
+            return None
+
     # =========================================================================
     # Library operations (read user library)
     # =========================================================================
@@ -222,16 +240,21 @@ class AppleMusicClient:
     # =========================================================================
 
     def add_songs_to_library(self, catalog_ids: List[str]) -> bool:
-        """Add songs to the user's library by catalog IDs. Max 100 per call."""
+        """Add songs to the user's library by catalog IDs.
+
+        Posts one ID at a time: Apple's amp-api silently 202s batched POSTs
+        (multiple ids[songs]=... params) without persisting them for some
+        accounts/storefronts, while single-ID POSTs reliably land.
+        """
         if not catalog_ids:
             return True
 
-        for i in range(0, len(catalog_ids), 100):
-            batch = catalog_ids[i : i + 100]
-            ids_param = "&".join(f"ids[songs]={cid}" for cid in batch)
-            url = f"{BASE_URL}/v1/me/library?{ids_param}"
-            self._request("POST", url)
-
+        for cid in catalog_ids:
+            url = f"{BASE_URL}/v1/me/library?ids[songs]={cid}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError as e:
+                logger.warning(f"Failed to add song to library {cid}: {e}")
         return True
 
     def add_songs_to_favorites(self, catalog_ids: List[str]) -> bool:
@@ -239,30 +262,128 @@ class AppleMusicClient:
         if not catalog_ids:
             return True
 
-        for i in range(0, len(catalog_ids), 100):
-            batch = catalog_ids[i : i + 100]
-            ids_param = "&".join(f"ids[songs]={cid}" for cid in batch)
-            url = f"{BASE_URL}/v1/me/favorites?{ids_param}"
+        # Pass 1: favorite by catalog song IDs, one at a time (batched POSTs
+        # silently 202 without persisting on some accounts).
+        for cid in catalog_ids:
+            one_url = f"{BASE_URL}/v1/me/favorites?ids[songs]={cid}"
             try:
-                self._request("POST", url)
+                self._request("POST", one_url)
             except AppleMusicAPIError as e:
-                # Favorites endpoint may not be available on all accounts
-                logger.warning(f"Failed to favorite songs: {e}")
-                return False
+                logger.warning(f"Failed to favorite song {cid}: {e}")
+
+        # Pass 2: for songs already in library, favorite by library song IDs
+        try:
+            library_songs = self.get_library_songs(limit=None)
+        except Exception:
+            library_songs = []
+        catalog_to_library: dict[str, str] = {}
+        for song in library_songs:
+            attrs = song.get("attributes", {})
+            pp = attrs.get("playParams", {})
+            cid = str(pp.get("catalogId") or pp.get("reportingId") or "")
+            lib_id = song.get("id")
+            if cid and lib_id:
+                catalog_to_library[cid] = lib_id
+
+        library_ids = [catalog_to_library.get(str(cid)) for cid in catalog_ids]
+        library_ids = [lid for lid in library_ids if lid]
+
+        for lid in library_ids:
+            one_url = f"{BASE_URL}/v1/me/favorites?ids[library-songs]={lid}"
+            try:
+                self._request("POST", one_url)
+            except AppleMusicAPIError as e:
+                logger.warning(f"Failed to favorite library song {lid}: {e}")
+        # Pass 3: ratings API (love) as a final fallback
+        try:
+            self._rate_songs_love(catalog_ids=catalog_ids, library_ids=library_ids)
+        except Exception as e:
+            logger.debug(f"Ratings API fallback failed: {e}")
 
         return True
+
+    # ---------------------------------------------------------------------
+    # Ratings API (fallback for hearts)
+    # ---------------------------------------------------------------------
+    def _rate_songs_love(self, catalog_ids: List[str], library_ids: List[str]):
+        """Try Apple ratings API to set 'love' on songs.
+
+        Tries several shapes observed in the wild, ignoring failures silently.
+        """
+        if not catalog_ids and not library_ids:
+            return
+
+        def _post_json(url: str, data: dict):
+            try:
+                self._request("POST", url, json=data)
+            except AppleMusicAPIError as e:
+                raise e
+
+        # Shape A: POST /v1/me/ratings/songs with JSON data list (catalog)
+        if catalog_ids:
+            payload = {
+                "data": [
+                    {"id": str(cid), "type": "songs", "attributes": {"value": "love"}}
+                    for cid in catalog_ids
+                ]
+            }
+            try:
+                _post_json(f"{BASE_URL}/v1/me/ratings/songs", payload)
+            except AppleMusicAPIError:
+                pass
+
+        # Shape B: POST /v1/me/ratings/library-songs (library IDs)
+        if library_ids:
+            payload = {
+                "data": [
+                    {
+                        "id": str(lid),
+                        "type": "library-songs",
+                        "attributes": {"value": "love"},
+                    }
+                    for lid in library_ids
+                ]
+            }
+            try:
+                _post_json(f"{BASE_URL}/v1/me/ratings/library-songs", payload)
+            except AppleMusicAPIError:
+                pass
+
+        # Shape C: Query param style for small batches (catalog)
+        for i in range(0, len(catalog_ids), 10):
+            batch = catalog_ids[i : i + 10]
+            if not batch:
+                continue
+            ids_param = ",".join(str(cid) for cid in batch)
+            url = f"{BASE_URL}/v1/me/ratings/songs?rating=love&ids={ids_param}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError:
+                continue
+
+        # Shape D: Query param style for library-songs
+        for i in range(0, len(library_ids), 10):
+            batch = library_ids[i : i + 10]
+            if not batch:
+                continue
+            ids_param = ",".join(str(lid) for lid in batch)
+            url = f"{BASE_URL}/v1/me/ratings/library-songs?rating=love&ids={ids_param}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError:
+                continue
 
     def add_albums_to_library(self, catalog_ids: List[str]) -> bool:
         """Add albums to the user's library by catalog IDs."""
         if not catalog_ids:
             return True
 
-        for i in range(0, len(catalog_ids), 100):
-            batch = catalog_ids[i : i + 100]
-            ids_param = "&".join(f"ids[albums]={cid}" for cid in batch)
-            url = f"{BASE_URL}/v1/me/library?{ids_param}"
-            self._request("POST", url)
-
+        for cid in catalog_ids:
+            url = f"{BASE_URL}/v1/me/library?ids[albums]={cid}"
+            try:
+                self._request("POST", url)
+            except AppleMusicAPIError as e:
+                logger.warning(f"Failed to add album to library {cid}: {e}")
         return True
 
     def add_albums_to_favorites(self, catalog_ids: List[str]) -> bool:
@@ -270,16 +391,12 @@ class AppleMusicClient:
         if not catalog_ids:
             return True
 
-        for i in range(0, len(catalog_ids), 100):
-            batch = catalog_ids[i : i + 100]
-            ids_param = "&".join(f"ids[albums]={cid}" for cid in batch)
-            url = f"{BASE_URL}/v1/me/favorites?{ids_param}"
+        for cid in catalog_ids:
+            url = f"{BASE_URL}/v1/me/favorites?ids[albums]={cid}"
             try:
                 self._request("POST", url)
             except AppleMusicAPIError as e:
-                logger.warning(f"Failed to favorite albums: {e}")
-                return False
-
+                logger.warning(f"Failed to favorite album {cid}: {e}")
         return True
 
     def create_playlist(self, name: str, description: str = "") -> Optional[dict]:
